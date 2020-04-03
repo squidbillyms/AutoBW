@@ -3,7 +3,7 @@
 ######################################################################
 # AutoBW
 # Set QoS upload/download speeds using Ookla speedtests and spdMerlin
-# Requires bc and spdMerlin (v3.3.2 or later)
+# Requires bc, spdMerlin, and FreshJr QoS script set-up/installed
 # Some of the functionality here was either taken directly or
 #  adapted from the FreshJr_QOS script
 #
@@ -65,7 +65,7 @@ test_mode=1
 ######################################################################
 
 check() {	
-	#Check to make sure bc and spdMerlin (v.3.3.2 or later) is installed,
+	#Check to make sure bc and psdMerlin is installed,
 	# QoS is enabled, and FreshJr_QoS is not in delayed start
 	bc -v &> /dev/null
         if [ "$?" -ne 0 ]; then
@@ -74,13 +74,12 @@ check() {
 	elif [ ! -x "/jffs/scripts/spdmerlin" ]; then
 		echo " ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' " 
 		exit 1; 
-	#Check to make sure spdMerlin version is 3.3.2 or later (>=3.3.2 prevents QoS from interfering with speedtests)
-	elif [ $(echo -e "$(grep 'SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
-		echo " ERROR: Need spdMerlin v3.3.2 tor later to ensure QoS doesn't interfere with calculated speeds."
-		echo " ERROR: Try running 'spdmerlin update'"
-		exit 1;
 	elif [ "$(nvram get qos_enable)" == "0" ]; then
 		echo " ERROR: QoS does not appear to be enabled."
+                exit 1;
+	#Check to make sure spdMerlin version is 3.3.2 or later (>=3.3.2 prevents QoS from interfering with speedtests)
+	elif [ $(echo -e "$(grep 'readonly SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
+		echo " ERROR: Need spdMerlin v>=3.3.2 to ensure QoS doesn't interfere with calculated speeds."
 		exit 1;
 	else
 		for pid in $(pidof FreshJR_QOS); do
