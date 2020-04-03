@@ -98,7 +98,7 @@ update() {	#Adapted from code by Jack Yaz
 	if [ "$doupdate" != "false" ]; then
 		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME" &> /dev/null
 		chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
-		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n" $serverver
+		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n\n" $serverver
         exit 0
 	else
 		printf " Based on versioning alone, you have the latest version: %s\n" $serverver
