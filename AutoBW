@@ -58,7 +58,7 @@ download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
 # meaning no "nvram commit" or "tc class change" commands 
 # will be executed
 # 1 = test mode (no changes), 0 = make permenant changes 
-test_mode=0
+test_mode=1
 ######################################################################
 
 check() {	
