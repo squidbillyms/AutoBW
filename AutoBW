@@ -1,0 +1,197 @@
+#!/opt/bin/bash
+
+######################################################################
+# AUTOBW
+# Set QoS upload/download speeds using Ookla speedtests and spdMerlin
+# Requires bash, bc, and spdMerlin
+#
+# v1.0 (3/25/2020): Initial Release
+######################################################################
+
+#Make sure speeds (before scaling) are within these boundaries
+# Mainly just to prevent bandwidth from being set too low
+# (or too high)... not worried about upper limit but it is there
+# for the sake of completeness
+download_lower_limit=10  #Mbps
+download_upper_limit=50  #Mbps
+upload_lower_limit=1.0   #Mbps
+upload_upper_limit=50    #Mbps
+
+#Scale average values by this factor
+#Adjust to optimize bufferbloat and quality grade at DSLreports.com
+down_scale_factor=0.80
+up_scale_factor=0.80
+
+#Do we need to disable QoS to get new QoS bandwidth limits
+disable_qos_to_test=1
+
+#Average download and upload speeds over this many
+# consecutive speedtest runs
+num_spd_tests=3
+
+#Pause between successive speedtest runs (if num_spd_tests > 1)
+pause_between_test=0
+#If so, pause for how long (will be used with sleep command)
+pause_this_long=1m
+
+#spdMerlin command
+spdMer_command="/jffs/scripts/spdmerlin generate"
+#spdMer_command="echo DEBUG: spdMerlin executes now"
+
+#Location of upload stats
+upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm" 
+
+#Location of download stats
+download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm" 
+
+#Do you wanna to know what is going on if you manually run this script
+show_me=1
+
+######################################################################
+
+script_name=$(basename $0)
+script_name=$(echo $script_name | tr 'a-z' 'A-Z')
+
+#Disable QOS to find upload/download speeds
+if (( $disable_qos_to_test )); then
+  (( $show_me )) && echo -e "\nDisabling QoS to perform speedtests ..."
+  nvram set qos_enable=0
+  nvram commit
+  service restart_qos 1> /dev/null
+  service restart_firewall 1> /dev/null
+  (( $show_me )) && echo "Sleeping for 1m ..."
+  sleep 1m
+fi
+
+#Calculate average download and upload speeds using spdMerlin
+sum_down=0; sum_up=0; x=1
+while [ $x -le $num_spd_tests ]
+do
+  (( $show_me )) && echo -e "\nRunning spdMerlin test #$x of $num_spd_tests ..."  
+  ${spdMer_command} &> /dev/null
+  Mbps_down=$(tail -n1 $download_stats | awk -F ',' '{print $NF}')
+  Mbps_up=$(tail -n1 $upload_stats | awk -F ',' '{print $NF}')
+
+  sum_down=$(echo $sum_down+$Mbps_down | bc)
+  sum_up=$(echo $sum_up+$Mbps_up | bc)
+
+  if (( $show_me )); then
+    echo "===== SpeedTest: $x ====="
+    echo Download Speed: $Mbps_down Mbps
+    echo Upload Speed: $Mbps_up Mbps
+  fi
+
+  x=$(( $x + 1 ))
+  (( $pause_between_test )) && (( $x <= $num_spd_tests )) && echo "Sleeping for $pause_this_long ..." && sleep $pause_this_long  
+done
+
+#Calculate the average values
+Mbps_down=$(echo "scale=3; $sum_down/$num_spd_tests" | bc)
+Mbps_up=$(echo "scale=3; $sum_up/$num_spd_tests" | bc)
+if (( $show_me )) && (( $num_spd_tests > 1 )); then
+  echo -e "\n===== Averages: ====="
+  echo Download Speed: $Mbps_down Mbps
+  echo Upload Speed: $Mbps_up Mbps
+fi
+
+#Make sure download and uploads speeds are within defined user-defined limits above
+if (( `echo "$Mbps_down < $download_lower_limit" | bc` )); then
+   logger -t $script_name " -----> Speedtest avg download speed ($Mbps_down Mbps) was less than lower limit ($download_lower_limit Mbps)" 
+   (( $show_me )) && echo "Speedtest avg download speed ($Mbps_down Mbps) was less than lower limit ($download_lower_limit Mbps)"
+   Mbps_down=$download_lower_limit
+elif (( `echo "$Mbps_down > $download_upper_limit" | bc` )); then
+   logger -t $script_name " -----> Speedtest avg download speed ($Mbps_down Mbps) was greater than upper limit ($download_upper_limit Mbps)"
+   (( $show_me )) && echo "Speedtest avg download speed ($Mbps_down Mbps) was greater than upper limit ($download_upper_limit Mbps)"
+   Mbps_down=$download_upper_limit
+fi
+if (( `echo "$Mbps_up < $upload_lower_limit" | bc` )); then
+   logger -t $script_name " -----> Speedtest avg upload speed ($Mbps_up Mbps) was less than lower limit ($upload_lower_limit Mbps)" 
+   (( $show_me )) && echo "Speedtest avg upload speed ($Mbps_up Mbps) was less than lower limit ($upload_lower_limit Mbps)"
+   Mbps_up=$upload_lower_limit
+elif (( `echo "$Mbps_up > $upload_upper_limit" | bc` )); then
+   logger -t $script_name " -----> Speedtest avg upload speed ($Mbps_up Mbps) was greater than upper limit ($upload_upper_limit Mbps)"
+   (( $show_me )) && echo "Speedtest avg upload speed ($Mbps_up Mbps) was greater than upper limit ($upload_upper_limit Mbps)"
+   Mbps_up=$upload_upper_limit
+fi
+
+#Convert to Kbps
+#Could simplify this but want to know scaled Mbps so that it can be reported
+Mbps_down=$(echo $Mbps_down*$down_scale_factor | bc)
+Mbps_up=$(echo $Mbps_up*$up_scale_factor | bc)
+Kbps_down=$(echo $Mbps_down*1024 | bc)
+Kbps_up=$(echo $Mbps_up*1024 | bc)
+
+#Set Download Limit
+logger -t $script_name " -----> Setting QoS Download Speed to $Mbps_down Mbps ..."
+(( $show_me )) && echo -e "\nAfter scaling by $down_scale_factor, setting QoS Download Speed to $Mbps_down Mbps ..."
+nvram set qos_ibw=$Kbps_down
+
+#Set Upload Limit
+logger -t $script_name " -----> Setting QoS Upload Speed to $Mbps_up Mbps ..."
+(( $show_me )) && echo "After scaling by $up_scale_factor, setting QoS Upload Speed to $Mbps_up Mbps ..."
+nvram set qos_obw=$Kbps_up
+
+#Re-Enable QoS if it was disabled to perform speedtest
+if (( $disable_qos_to_test )); then
+  (( $show_me )) && echo "Re-enabling QoS now that speedtest are done ..."
+  nvram set qos_enable=1
+fi
+nvram commit
+service restart_qos 1> /dev/null
+service restart_firewall 1> /dev/null
+(( $show_me )) && echo "Sleeping for 5 min ..."
+sleep 300s
+(( $show_me )) && echo "Done."
+exit 0;
+
+
+
+
+read_values {
+       #read existing burst/cburst per download class
+        while read -r line;
+        do
+                ClassesPresent=$(($ClassesPresent+1))
+                if [ "$( echo ${line} | sed -n -e 's/.*1:10 //p' )" != "" ] ; then
+                        DownBurst0=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                        DownCburst0=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+                fi
+
+                if [ "$( echo ${line} | sed -n -e 's/.*1:11 //p' )" != "" ] ; then
+                        DownBurst1=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                        DownCburst1=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+                fi
+
+                if [ "$( echo ${line} | sed -n -e 's/.*1:12 //p' )" != "" ] ; then
+                        DownBurst2=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                        DownCburst2=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+                fi
+
+                if [ "$( echo ${line} | sed -n -e 's/.*1:13 //p' )" != "" ] ; then
+                        DownBurst3=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                        DownCburst3=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+                fi
+
+                if [ "$( echo ${line} | sed -n -e 's/.*1:14 //p' )" != "" ] ; then
+                        DownBurst4=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                        DownCburst4=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+                fi
+
+                if [ "$( echo ${line} | sed -n -e 's/.*1:15 //p' )" != "" ] ; then
+                        DownBurst5=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                        DownCburst5=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+                fi
+
+                if [ "$( echo ${line} | sed -n -e 's/.*1:16 //p' )" != "" ] ; then
+                        DownBurst6=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                        DownCburst6=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+                fi
+
+                if [ "$( echo ${line} | sed -n -e 's/.*1:17 //p' )" != "" ] ; then
+                        DownBurst7=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                        DownCburst7=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+                fi
+        done <<EOF
+                $( tc class show dev br0 | grep "parent 1:1 " )
+EOF
+}
