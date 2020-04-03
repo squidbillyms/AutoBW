@@ -4,16 +4,21 @@
 # AutoBW
 # Set QoS upload/download speeds using Ookla speedtests and spdMerlin
 # Requires bc, spdMerlin, and FreshJr QoS script set-up/installed
-# Some of the functionality here was either taken directly from
-#  or adapted from the FreshJr_QOS script
+# Some of the functionality here was either taken directly or
+#  adapted from the FreshJr_QOS script
 #
 # v1.0 (3/25/2020): Initial Release
 # v1.1 (4/01/2020): Complete rewrite
-#                   -No longer requires bash
-#                   -Checks that bc is installed & QoS enabled &
+#	     	    -No longer requires bash
+#		    -Checks that bc is installed & QoS enabled &
 #                     upload traffic is directed to unthrottled class
-#                   -No need to stop/start QoS
-#                   -Class rates/ceils are scaled
+#		    -No need to stop/start QoS
+#		    -Class rates/ceils are scaled
+# v1.2 (4/03/2020): More changes
+#		    -Check for spdMerlin
+#		    -Formatted logger message concerning new BW
+#		    -Check for appropriate iptable rules that ensure
+#                     spdMerlin traffic in unaffected by QoS
 ######################################################################
 
 #Scale average values by this factor
@@ -53,26 +58,32 @@ download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
 # meaning no "nvram commit" or "tc class change" commands 
 # will be executed
 # 1 = test mode (no changes), 0 = make permenant changes 
-test_mode=1
+test_mode=0
 ######################################################################
 
 check() {	
-	#Check to make sure bc is installed, spdMerlin upload traffic will not be throttled,
+	#Check to make sure bc and psdMerlin is installed,
 	# QoS is enabled, and FreshJr_QoS is not in delayed start
 	bc -v &> /dev/null
-        if [ "$?" -ne 0 ] ; then
-		echo "'bc' is required but does not appear to be available."
+        if [ "$?" -ne 0 ]; then
+		echo " ERROR: 'bc' is required but does not appear to be available."
 		exit 1;
+	elif [ ! -x "/jffs/scripts/spdmerlin" ]; then
+		echo " ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' " 
+		exit 1; 
 	elif [ "$(nvram get qos_enable)" == "0" ]; then
-		echo "QoS does not appear to be enabled."
+		echo " ERROR: QoS does not appear to be enabled."
                 exit 1;
-	elif [ "$( tc filter show dev eth0 | grep -B1 0x40030001 | grep 'flowid 1:2' )" == "" ]; then
-		echo "QoS can/will interfere with spdMerlin upload speed measurements."
-		echo "Try adding something like the following to the FreshJR_QOS script"
-		echo " in the tc_redirection_up_rules() section to ensure such traffic"
-		echo " is unthrottled:"
-		echo "\${tc} filter add dev eth0 protocol all prio 1 u32 match mark 0x40030001 0xc03fffff flowid 1:2"
-		exit 1
+	#Check that appropriate rule is in place to ensure spdMerlin traffic is unaffected by Qos
+	elif [ "$(iptables -L OUTPUT -n -v | grep 'dports 5060,8080 MARK xset 0x80000000/0xc0000000' | grep -E 'udp|tcp' | wc -l)" != "2" ]; then
+                echo
+		echo " ERROR: QoS can/will interfere with bandwidth measurements (via spdMerlin) unless"
+		echo " ERROR:  the appropriate action is taken. Please try issuing the following commands"
+		echo " ERROR:  first to ensure calculated upload/download speeds are not influenced by QoS:"
+		echo " ERROR:  iptables -I OUTPUT -m  multiport -p tcp --dports 5060,8080 -j MARK --set-xmark 0x80000000/0xC0000000"
+		echo " ERROR:  iptables -I OUTPUT -m  multiport -p udp --dports 5060,8080 -j MARK --set-xmark 0x80000000/0xC0000000"
+                echo
+		exit 1;
         else
                 for pid in $(pidof FreshJR_QOS); do
                         if [ $pid != $$ ]; then
@@ -82,8 +93,9 @@ check() {
                         fi
                 done
 	fi
+
         if [ "$test_mode" -eq "1" ]; then
-                echo -e "\n**** Test Mode: No changes will be made."
+                echo -e "\n TEST MODE: No changes will be made."
         fi
 }
 
@@ -167,10 +179,9 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
         old_Kbps_down=$( nvram get qos_ibw )
 
 	if [ "$test_mode" -eq "0" ]; then
-		#Set Download Limit
-		logger -t $script_name " -----> Setting QoS Download Speed to $Kbps_down Kbps ..."
-		#Set Upload Limit
-		logger -t $script_name " -----> Setting QoS Upload Speed to $Kbps_up Kbps ..."
+		#Set Upload/Download Limit
+		printf " -----> Setting QoS Download Speed to %8.1f Kbps ..." $Kbps_down | logger -t $script_name
+		printf " -----> Setting QoS Upload Speed to %8.1f Kbps ..." $Kbps_up | logger -t $script_name
 		nvram set qos_ibw=$(echo $Kbps_down | cut -d. -f1)
 		nvram set qos_obw=$(echo $Kbps_up | cut -d. -f1)
         	nvram commit
@@ -268,7 +279,7 @@ EOF
                 $( tc class show dev eth0 | grep "parent 1:1" )
 EOF
 	if [ "$test_mode" -eq "1" ]; then
-		echo -e "\n**** Test Mode: No changes were made."
+		echo -e "\n TEST MODE: No changes were made."
 	fi
 }
 
