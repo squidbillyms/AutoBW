@@ -18,7 +18,10 @@
 #		    -Check for spdMerlin
 #		    -Formatted logger message concerning new BW
 #		    -Check for appropriate iptable rules that ensure
-#                     spdMerlin traffic in unaffected by QoS
+#             spdMerlin traffic in unaffected by QoS
+# v1.3 (4/03/2020): Changed an important check
+#		    -Check for spdMerlin v3.3.2 or greater to ensure
+#             that QoS will not interfere with calculated speeds
 ######################################################################
 
 #Scale average values by this factor
@@ -30,7 +33,7 @@ up_scale_factor=0.85
 # Mainly just to prevent bandwidth from being set too low
 # (or too high)... not worried about upper limit but it is there
 # for the sake of completeness
-download_lower_limit=8  #Mbps
+download_lower_limit=8   #Mbps
 download_upper_limit=50  #Mbps
 upload_lower_limit=1.0   #Mbps
 upload_upper_limit=50    #Mbps
@@ -74,29 +77,23 @@ check() {
 	elif [ "$(nvram get qos_enable)" == "0" ]; then
 		echo " ERROR: QoS does not appear to be enabled."
                 exit 1;
-	#Check that appropriate rule is in place to ensure spdMerlin traffic is unaffected by Qos
-	elif [ "$(iptables -L OUTPUT -n -v | grep 'dports 5060,8080 MARK xset 0x80000000/0xc0000000' | grep -E 'udp|tcp' | wc -l)" != "2" ]; then
-                echo
-		echo " ERROR: QoS can/will interfere with bandwidth measurements (via spdMerlin) unless"
-		echo " ERROR:  the appropriate action is taken. Please try issuing the following commands"
-		echo " ERROR:  first to ensure calculated upload/download speeds are not influenced by QoS:"
-		echo " ERROR:  iptables -I OUTPUT -m  multiport -p tcp --dports 5060,8080 -j MARK --set-xmark 0x80000000/0xC0000000"
-		echo " ERROR:  iptables -I OUTPUT -m  multiport -p udp --dports 5060,8080 -j MARK --set-xmark 0x80000000/0xC0000000"
-                echo
+	#Check to make sure spdMerlin version is 3.3.2 or later (>=3.3.2 prevents QoS from interfering with speedtests)
+	elif [ $(echo -e "$(grep 'readonly SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
+		echo " ERROR: Need spdMerlin v>=3.3.2 to ensure QoS doesn't interfere with calculated speeds."
 		exit 1;
-        else
-                for pid in $(pidof FreshJR_QOS); do
-                        if [ $pid != $$ ]; then
-                                if ! [ "$(ps -w | grep "${pid}.*\(install\|menu\|rules\|rates\)" | grep -v "grep")" ] ; then
-                                        kill $pid
-                                fi
-                        fi
-                done
+	else
+		for pid in $(pidof FreshJR_QOS); do
+			if [ $pid != $$ ]; then
+				if ! [ "$(ps -w | grep "${pid}.*\(install\|menu\|rules\|rates\)" | grep -v "grep")" ] ; then
+					kill $pid
+				fi
+			fi
+		done
 	fi
 
-        if [ "$test_mode" -eq "1" ]; then
-                echo -e "\n TEST MODE: No changes will be made."
-        fi
+	if [ "$test_mode" -eq "1" ]; then
+		echo -e "\n TEST MODE: No changes will be made."
+	fi
 }
 
 get_new_speeds() {	#Get new down/up speeds using spdMerlin
