@@ -102,6 +102,7 @@ update() {	#Adapted from code by Jack Yaz
         exit 0
 	fi
 }
+
 check() {	
 	#Check to make sure bc and spdMerlin (v3.3.2 or later) is installed,
 	# QoS is enabled, and FreshJr_QoS is not in delayed start
@@ -213,6 +214,13 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	#Get current QoS down/up speeds
 	old_Kbps_up=$( nvram get qos_obw )
         old_Kbps_down=$( nvram get qos_ibw )
+        #Dirty hack if 0 values set, to easy avoid error divide by 0
+        if [ "$old_Kbps_up" -eq "0" ]; then
+                old_Kbps_up="1"
+        fi
+        if [ "$old_Kbps_down" -eq "0" ]; then
+                old_Kbps_up="1"
+        fi
 
 	if [ "$test_mode" -eq "0" ]; then
 		#Set Upload/Download Limit
