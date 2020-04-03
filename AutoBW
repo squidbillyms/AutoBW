@@ -1,197 +1,280 @@
-#!/opt/bin/bash
+#!/bin/sh
 
 ######################################################################
-# AUTOBW
+# AutoBW
 # Set QoS upload/download speeds using Ookla speedtests and spdMerlin
-# Requires bash, bc, and spdMerlin
+# Requires bc, spdMerlin, and FreshJr QoS script set-up/installed
+# Some of the functionality here was either taken directly from
+#  or adapted from the FreshJr_QOS script
 #
 # v1.0 (3/25/2020): Initial Release
+# v1.1 (4/01/2020): Complete rewrite
+#                   -No longer requires bash
+#                   -Checks that bc is installed & QoS enabled &
+#                     upload traffic is directed to unthrottled class
+#                   -No need to stop/start QoS
+#                   -Class rates/ceils are scaled
 ######################################################################
 
-#Make sure speeds (before scaling) are within these boundaries
+#Scale average values by this factor
+# Adjust to optimize bufferbloat and quality grade at DSLreports.com
+down_scale_factor=0.85
+up_scale_factor=0.85
+
+#Make sure speeds (AFTER scaling) are within these boundaries
 # Mainly just to prevent bandwidth from being set too low
 # (or too high)... not worried about upper limit but it is there
 # for the sake of completeness
-download_lower_limit=10  #Mbps
+download_lower_limit=8  #Mbps
 download_upper_limit=50  #Mbps
 upload_lower_limit=1.0   #Mbps
 upload_upper_limit=50    #Mbps
 
-#Scale average values by this factor
-#Adjust to optimize bufferbloat and quality grade at DSLreports.com
-down_scale_factor=0.80
-up_scale_factor=0.80
+#Calculate the average download and upload speeds over this many
+# consecutive spdMerlin runs
+num_spd_tests=1
 
-#Do we need to disable QoS to get new QoS bandwidth limits
-disable_qos_to_test=1
-
-#Average download and upload speeds over this many
-# consecutive speedtest runs
-num_spd_tests=3
-
-#Pause between successive speedtest runs (if num_spd_tests > 1)
+#Pause between successive spdMerlin runs (if num_spd_tests > 1)
+# 0 = no pause, 1 = yes pause
 pause_between_test=0
-#If so, pause for how long (will be used with sleep command)
-pause_this_long=1m
+#If yes (or 1), pause for how long (will be used with sleep command)
+pause_this_long=15s
 
 #spdMerlin command
 spdMer_command="/jffs/scripts/spdmerlin generate"
-#spdMer_command="echo DEBUG: spdMerlin executes now"
 
 #Location of upload stats
-upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm" 
+upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm"
 
 #Location of download stats
-download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm" 
+download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
 
-#Do you wanna to know what is going on if you manually run this script
-show_me=1
-
+#Test Mode (run and calculate but do not make any changes)
+# meaning no "nvram commit" or "tc class change" commands 
+# will be executed
+# 1 = test mode (no changes), 0 = make permenant changes 
+test_mode=1
 ######################################################################
 
-script_name=$(basename $0)
-script_name=$(echo $script_name | tr 'a-z' 'A-Z')
+check() {	
+	#Check to make sure bc is installed, spdMerlin upload traffic will not be throttled,
+	# QoS is enabled, and FreshJr_QoS is not in delayed start
+	bc -v &> /dev/null
+        if [ "$?" -ne 0 ] ; then
+		echo "'bc' is required but does not appear to be available."
+		exit 1;
+	elif [ "$(nvram get qos_enable)" == "0" ]; then
+		echo "QoS does not appear to be enabled."
+                exit 1;
+	elif [ "$( tc filter show dev eth0 | grep -B1 0x40030001 | grep 'flowid 1:2' )" == "" ]; then
+		echo "QoS can/will interfere with spdMerlin upload speed measurements."
+		echo "Try adding something like the following to the FreshJR_QOS script"
+		echo " in the tc_redirection_up_rules() section to ensure such traffic"
+		echo " is unthrottled:"
+		echo "\${tc} filter add dev eth0 protocol all prio 1 u32 match mark 0x40030001 0xc03fffff flowid 1:2"
+		exit 1
+        else
+                for pid in $(pidof FreshJR_QOS); do
+                        if [ $pid != $$ ]; then
+                                if ! [ "$(ps -w | grep "${pid}.*\(install\|menu\|rules\|rates\)" | grep -v "grep")" ] ; then
+                                        kill $pid
+                                fi
+                        fi
+                done
+	fi
+        if [ "$test_mode" -eq "1" ]; then
+                echo -e "\n**** Test Mode: No changes will be made."
+        fi
+}
 
-#Disable QOS to find upload/download speeds
-if (( $disable_qos_to_test )); then
-  (( $show_me )) && echo -e "\nDisabling QoS to perform speedtests ..."
-  nvram set qos_enable=0
-  nvram commit
-  service restart_qos 1> /dev/null
-  service restart_firewall 1> /dev/null
-  (( $show_me )) && echo "Sleeping for 1m ..."
-  sleep 1m
-fi
+get_new_speeds() {	#Get new down/up speeds using spdMerlin
+        echo
+        echo "               ----------- SPDMERLIN --------"
+        echo "               Download (Kbps)  Upload (Kbps)"
+        echo "               ---------------  -------------"
 
-#Calculate average download and upload speeds using spdMerlin
-sum_down=0; sum_up=0; x=1
-while [ $x -le $num_spd_tests ]
-do
-  (( $show_me )) && echo -e "\nRunning spdMerlin test #$x of $num_spd_tests ..."  
-  ${spdMer_command} &> /dev/null
-  Mbps_down=$(tail -n1 $download_stats | awk -F ',' '{print $NF}')
-  Mbps_up=$(tail -n1 $upload_stats | awk -F ',' '{print $NF}')
+	#Calculate average download and upload speeds
+	sum_down=0; sum_up=0; x=1
+	while [ "$x" -le "$num_spd_tests" ]
+	do
+		printf "\rRunning %2.0f of %2.0f speedtest, please wait... " $x $num_spd_tests 
+                ${spdMer_command} &> /dev/null
+                Mbps_down=$(tail -n1 $download_stats | awk -F ',' '{print $NF}')
+                Mbps_up=$(tail -n1 $upload_stats | awk -F ',' '{print $NF}')
+                Kbps_down=$(echo "$Mbps_down*1024" | bc -l)
+                Kbps_up=$(echo "$Mbps_up*1024" | bc -l)
 
-  sum_down=$(echo $sum_down+$Mbps_down | bc)
-  sum_up=$(echo $sum_up+$Mbps_up | bc)
+                sum_down=$(echo $sum_down+$Kbps_down | bc -l)
+                sum_up=$(echo $sum_up+$Kbps_up | bc -l)
 
-  if (( $show_me )); then
-    echo "===== SpeedTest: $x ====="
-    echo Download Speed: $Mbps_down Mbps
-    echo Upload Speed: $Mbps_up Mbps
-  fi
+		printf "\rTest %2.0f of %2.0f      %7.1f         %7.1f\n" $x $num_spd_tests $Kbps_down $Kbps_up
 
-  x=$(( $x + 1 ))
-  (( $pause_between_test )) && (( $x <= $num_spd_tests )) && echo "Sleeping for $pause_this_long ..." && sleep $pause_this_long  
-done
+  		x=$(( $x + 1 ))
+		if [ "$pause_between_test" -eq 1 ] && [ "$x" -le "$num_spd_tests" ]; then 
+  			printf "Sleeping for %s ..." $pause_this_long  
+			sleep $pause_this_long
+                fi
+	done
 
-#Calculate the average values
-Mbps_down=$(echo "scale=3; $sum_down/$num_spd_tests" | bc)
-Mbps_up=$(echo "scale=3; $sum_up/$num_spd_tests" | bc)
-if (( $show_me )) && (( $num_spd_tests > 1 )); then
-  echo -e "\n===== Averages: ====="
-  echo Download Speed: $Mbps_down Mbps
-  echo Upload Speed: $Mbps_up Mbps
-fi
+	#Calculate the average values
+	Kbps_down=$(echo "$sum_down/$num_spd_tests" | bc -l)
+	Kbps_up=$(echo "$sum_up/$num_spd_tests" | bc -l)
+	if [ "$num_spd_tests" -gt "1" ]; then
+		printf "Average            %7.1f         %7.1f\n" $Kbps_down $Kbps_up
+	fi
 
-#Make sure download and uploads speeds are within defined user-defined limits above
-if (( `echo "$Mbps_down < $download_lower_limit" | bc` )); then
-   logger -t $script_name " -----> Speedtest avg download speed ($Mbps_down Mbps) was less than lower limit ($download_lower_limit Mbps)" 
-   (( $show_me )) && echo "Speedtest avg download speed ($Mbps_down Mbps) was less than lower limit ($download_lower_limit Mbps)"
-   Mbps_down=$download_lower_limit
-elif (( `echo "$Mbps_down > $download_upper_limit" | bc` )); then
-   logger -t $script_name " -----> Speedtest avg download speed ($Mbps_down Mbps) was greater than upper limit ($download_upper_limit Mbps)"
-   (( $show_me )) && echo "Speedtest avg download speed ($Mbps_down Mbps) was greater than upper limit ($download_upper_limit Mbps)"
-   Mbps_down=$download_upper_limit
-fi
-if (( `echo "$Mbps_up < $upload_lower_limit" | bc` )); then
-   logger -t $script_name " -----> Speedtest avg upload speed ($Mbps_up Mbps) was less than lower limit ($upload_lower_limit Mbps)" 
-   (( $show_me )) && echo "Speedtest avg upload speed ($Mbps_up Mbps) was less than lower limit ($upload_lower_limit Mbps)"
-   Mbps_up=$upload_lower_limit
-elif (( `echo "$Mbps_up > $upload_upper_limit" | bc` )); then
-   logger -t $script_name " -----> Speedtest avg upload speed ($Mbps_up Mbps) was greater than upper limit ($upload_upper_limit Mbps)"
-   (( $show_me )) && echo "Speedtest avg upload speed ($Mbps_up Mbps) was greater than upper limit ($upload_upper_limit Mbps)"
-   Mbps_up=$upload_upper_limit
-fi
+	#Apply user-defined scale factors
+	printf "Scale Factors         %5.2f           %5.2f\n" $down_scale_factor $up_scale_factor
+	Kbps_down=$(echo "$Kbps_down*$down_scale_factor" | bc -l)
+	Kbps_up=$(echo "$Kbps_up*$up_scale_factor" | bc -l)
+	printf "Scaled Speeds      %7.1f         %7.1f\n" $Kbps_down $Kbps_up
 
-#Convert to Kbps
-#Could simplify this but want to know scaled Mbps so that it can be reported
-Mbps_down=$(echo $Mbps_down*$down_scale_factor | bc)
-Mbps_up=$(echo $Mbps_up*$up_scale_factor | bc)
-Kbps_down=$(echo $Mbps_down*1024 | bc)
-Kbps_up=$(echo $Mbps_up*1024 | bc)
+	#Make sure download and uploads speeds are within defined user-defined limits above
+	download_lower_limit=$(echo "$download_lower_limit*1024" | bc -l)
+	download_upper_limit=$(echo "$download_upper_limit*1024" | bc -l)
+	upload_lower_limit=$(echo "$upload_lower_limit*1024" | bc -l)
+	upload_upper_limit=$(echo "$upload_upper_limit*1024" | bc -l)
+	outta_bounds=0
+	if [ $(echo "$Kbps_down < ($download_lower_limit)" | bc -l) -eq 1 ]; then
+   		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit | logger -t $script_name
+   		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit 
+    		Kbps_down=$download_lower_limit
+		outta_bounds=1
+	elif [ $(echo "$Kbps_down > $download_upper_limit" | bc -l) -eq 1 ]; then
+   		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit | logger -t $script_name
+   		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit 
+   		Kbps_down=$download_upper_limit
+		outta_bounds=1
+	fi
+	if [ $(echo "$Kbps_up < $upload_lower_limit" | bc -l) -eq 1 ]; then
+   		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit | logger -t $script_name
+   		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit 
+   		Kbps_up=$upload_lower_limit
+		outta_bounds=1
+	elif [ $(echo "$Kbps_up > $upload_upper_limit" | bc -l) -eq 1 ]; then
+   		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit | logger -t $script_name
+   		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit 
+   		Kbps_up=$upload_upper_limit
+		outta_bounds=1
+	fi
 
-#Set Download Limit
-logger -t $script_name " -----> Setting QoS Download Speed to $Mbps_down Mbps ..."
-(( $show_me )) && echo -e "\nAfter scaling by $down_scale_factor, setting QoS Download Speed to $Mbps_down Mbps ..."
-nvram set qos_ibw=$Kbps_down
+	if [ "$outta_bounds" -eq "1" ]; then
+		printf "Corrected Speeds   %7.1f         %7.1f\n" $Kbps_down $Kbps_up
+	fi	
 
-#Set Upload Limit
-logger -t $script_name " -----> Setting QoS Upload Speed to $Mbps_up Mbps ..."
-(( $show_me )) && echo "After scaling by $up_scale_factor, setting QoS Upload Speed to $Mbps_up Mbps ..."
-nvram set qos_obw=$Kbps_up
+	#Get current QoS down/up speeds
+	old_Kbps_up=$( nvram get qos_obw )
+        old_Kbps_down=$( nvram get qos_ibw )
 
-#Re-Enable QoS if it was disabled to perform speedtest
-if (( $disable_qos_to_test )); then
-  (( $show_me )) && echo "Re-enabling QoS now that speedtest are done ..."
-  nvram set qos_enable=1
-fi
-nvram commit
-service restart_qos 1> /dev/null
-service restart_firewall 1> /dev/null
-(( $show_me )) && echo "Sleeping for 5 min ..."
-sleep 300s
-(( $show_me )) && echo "Done."
-exit 0;
+	if [ "$test_mode" -eq "0" ]; then
+		#Set Download Limit
+		logger -t $script_name " -----> Setting QoS Download Speed to $Kbps_down Kbps ..."
+		#Set Upload Limit
+		logger -t $script_name " -----> Setting QoS Upload Speed to $Kbps_up Kbps ..."
+		nvram set qos_ibw=$(echo $Kbps_down | cut -d. -f1)
+		nvram set qos_obw=$(echo $Kbps_up | cut -d. -f1)
+        	nvram commit
+	fi 
 
+        echo
+        echo "               ------------- QOS ------------"
+        echo "               Download (Kbps)  Upload (Kbps)"
+        echo "               ---------------  -------------"
+        printf "%s           %7.1f         %7.1f\n" "Previous" $old_Kbps_down $old_Kbps_up
+        printf "%s   %7.1f         %7.1f\n" "New (from above)" $Kbps_down $Kbps_up
+}
 
+update_via_TC() {
+        #read parameters for tc
+        PARMS=""
+        OVERHEAD=$(nvram get qos_overhead)
+        if [ ! -z "$OVERHEAD" ] && [ "$OVERHEAD" -gt "0" ] ; then
+                ATM=$(nvram get qos_atm)
+                if [ "$ATM" == "1" ] ; then
+                        PARMS="overhead $OVERHEAD linklayer atm "
+                else
+                        PARMS="overhead $OVERHEAD linklayer ethernet "
+                fi
+        fi
 
+	#Calculate scale factor based on new/old speeds. This factor will be used to scale class rates & ceils
+        uscale_factor=$( echo "$Kbps_up/$old_Kbps_up" | bc -l )
+        dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l )    
+        printf "%s          %8.3f        %8.3f\n" "Scaling by" $dscale_factor $uscale_factor
 
-read_values {
-       #read existing burst/cburst per download class
+        echo
+	echo "              ============================ DOWNLOAD ============================="
+        echo "               ------------- RATE -----------    ------------- CEIL -----------"
+        echo "Class          Previous (Kbps)    New (Kbps)     Previous (Kbps)    New (Kbps) "
+        echo "-----          ---------------  -------------    ---------------  -------------"
         while read -r line;
         do
-                ClassesPresent=$(($ClassesPresent+1))
-                if [ "$( echo ${line} | sed -n -e 's/.*1:10 //p' )" != "" ] ; then
-                        DownBurst0=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                        DownCburst0=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-                fi
+        	class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
+                prio=$( echo ${class} | cut -c 2 )
 
-                if [ "$( echo ${line} | sed -n -e 's/.*1:11 //p' )" != "" ] ; then
-                        DownBurst1=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                        DownCburst1=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-                fi
+                prevRate=$( echo ${line} | awk -F"rate |Kbit" '{print $2}' )
+                prevCeil=$( echo ${line} | awk -F"ceil |Kbit" '{print $3}' )
+                Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
 
-                if [ "$( echo ${line} | sed -n -e 's/.*1:12 //p' )" != "" ] ; then
-                        DownBurst2=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                        DownCburst2=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-                fi
+                Rate=$(echo "scale=0; $prevRate*$dscale_factor" | bc -l)
+                Ceil=$(echo "scale=0; $prevCeil*$dscale_factor" | bc -l)
 
-                if [ "$( echo ${line} | sed -n -e 's/.*1:13 //p' )" != "" ] ; then
-                        DownBurst3=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                        DownCburst3=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-                fi
+	        printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+		
+		#Debug
+		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
 
-                if [ "$( echo ${line} | sed -n -e 's/.*1:14 //p' )" != "" ] ; then
-                        DownBurst4=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                        DownCburst4=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-                fi
+	        if [ "$test_mode" -eq "0" ]; then
+			Rate=$(echo $Rate | cut -d. -f1)
+			Ceil=$(echo $Ceil | cut -d. -f1)
+			tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
+     		fi
 
-                if [ "$( echo ${line} | sed -n -e 's/.*1:15 //p' )" != "" ] ; then
-                        DownBurst5=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                        DownCburst5=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-                fi
-
-                if [ "$( echo ${line} | sed -n -e 's/.*1:16 //p' )" != "" ] ; then
-                        DownBurst6=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                        DownCburst6=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-                fi
-
-                if [ "$( echo ${line} | sed -n -e 's/.*1:17 //p' )" != "" ] ; then
-                        DownBurst7=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                        DownCburst7=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-                fi
         done <<EOF
                 $( tc class show dev br0 | grep "parent 1:1 " )
 EOF
+ 	
+	echo
+	echo "              ============================= UPLOAD ============================="
+        echo "               ------------- RATE -----------    ------------- CEIL -----------"
+        echo "Class          Previous (Kbps)    New (Kbps)     Previous (Kbps)    New (Kbps) "
+        echo "-----          ---------------  -------------    ---------------  -------------"
+        while read -r line;
+        do
+        	class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
+                prio=$( echo ${class} | cut -c 2 )
+
+                prevRate=$( echo ${line} | awk -F"rate |Kbit" '{print $2}' )
+                prevCeil=$( echo ${line} | awk -F"ceil |Kbit" '{print $3}' )
+                Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+                Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+
+                Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
+                Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
+
+	        printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+		
+		#Debug
+		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
+
+	        if [ "$test_mode" -eq "0" ]; then
+			Rate=$(echo $Rate | cut -d. -f1)
+			Ceil=$(echo $Ceil | cut -d. -f1)
+			tc class change dev eth0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
+        	fi
+
+        done <<EOF
+                $( tc class show dev eth0 | grep "parent 1:1" )
+EOF
+	if [ "$test_mode" -eq "1" ]; then
+		echo -e "\n**** Test Mode: No changes were made."
+	fi
 }
+
+########### START HERE ###########
+script_name=$(basename $0)
+script_name=$(echo $script_name | tr 'a-z' 'A-Z')
+check
+get_new_speeds
+update_via_TC
