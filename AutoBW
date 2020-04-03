@@ -22,11 +22,21 @@
 # v1.3 (4/03/2020): Changed an important check
 #		    -Check for spdMerlin v3.3.2 or greater to ensure
 #             that QoS will not interfere with calculated speeds
+# v1.4 (4/03/2020): Added option for automatic updates
+#		    -If turned on, check for updates. If found then update.
 ######################################################################
-readonly SCRIPT_VERSION="v1.2"
+readonly SCRIPT_AUTHOR="squidbillyms"
+readonly SCRIPT_VERSION="v1.4"
 readonly SCRIPT_NAME="AutoBW"
 readonly SCRIPT_BRANCH="master"
-readonly SCRIPT_REPO="""$SCRIPT_NAME""/""$SCRIPT_BRANCH"
+readonly SCRIPT_REPO="https://raw.githubusercontent.com/$SCRIPT_AUTHOR/$SCRIPT_NAME/$SCRIPT_BRANCH"
+
+#Should I automatically check for and perform updates
+# 0=no ( I will update manually when I am ready manually), 1=yes do it for me
+# update manually using the following:
+#curl "https://raw.githubusercontent.com/squidbillyms/AutoBW/master/AutoBW" -o /jffs/scripts/AutoBW && chmod 755 AutoBW
+autoupdate=1
+
 #Scale average values by this factor
 # Adjust to optimize bufferbloat and quality grade at DSLreports.com
 down_scale_factor=0.85
@@ -36,7 +46,7 @@ up_scale_factor=0.85
 # Mainly just to prevent bandwidth from being set too low
 # (or too high)... not worried about upper limit but it is there
 # for the sake of completeness
-download_lower_limit=8    #Mbps
+download_lower_limit=10    #Mbps
 download_upper_limit=100  #Mbps
 upload_lower_limit=1      #Mbps
 upload_upper_limit=100    #Mbps
@@ -67,28 +77,32 @@ download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
 test_mode=1
 ######################################################################
 
-update() { #Code by JackYaz, adapted
-doupdate="false"
-        localver=$(grep "SCRIPT_VERSION=" /jffs/scripts/"$SCRIPT_NAME" | grep -m1 -oE 'v[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')
-	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF "squidbillyms" || { echo "Failed to check new version, continuing..."; return 1; }
-                serverver=$(/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep "SCRIPT_VERSION=" | grep -m1 -oE 'v[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')
-		if [ "$localver" != "$serverver" ]; then
-			doupdate="version"
-		else
-			localmd5="$(md5sum "/jffs/scripts/$SCRIPT_NAME" | awk '{print $1}')"
-			remotemd5="$(curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | md5sum | awk '{print $1}')"
-			if [ "$localmd5" != "$remotemd5" ]; then
-				doupdate="md5"
-			fi
+update() {	#Adapted from code by Jack Yaz
+	printf "\n AutoUpdate is enabled. Checking for update ...\n"
+	doupdate="false"
+	localver=$(grep "SCRIPT_VERSION=" /jffs/scripts/"$SCRIPT_NAME" | grep -m1 -oE 'v[1-9]([.][0-9])')
+	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF $SCRIPT_AUTHOR || { echo -e " ERROR: Failed to check new version, continuing anyway.\n"; return 1; }
+	serverver=$(/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep "SCRIPT_VERSION=" | grep -m1 -oE 'v[1-9]([.][0-9])')
+	if [ "$localver" != "$serverver" ]; then
+		doupdate="version"
+		printf " Found new version: this is %s but found %s.\n" $localver $serverver
+	else
+		localmd5="$(md5sum "/jffs/scripts/$SCRIPT_NAME" | awk '{print $1}')"
+		remotemd5="$(curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | md5sum | awk '{print $1}')"
+		if [ "$localmd5" != "$remotemd5" ]; then
+			#doupdate="md5"
+			printf " This version of $SCRIPT_NAME is different than the official version. Just letting you know. :)\n"
 		fi
+	fi
 		
-		if [ "$doupdate" != "false" ]; then
-			/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME"
-			chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
-                        echo "$SCRIPT_NAME successfully updated. Please execute it again.
-                        exit 0
-		fi
+	if [ "$doupdate" != "false" ]; then
+		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME"
+		chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
+		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n" $serverver
+        exit 0
+	fi
 }
+
 check() {	
 	#Check to make sure bc and spdMerlin (v3.3.2 or later) is installed,
 	# QoS is enabled, and FreshJr_QoS is not in delayed start
@@ -100,8 +114,8 @@ check() {
 		echo " ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' " 
 		exit 1; 
 	#Check to make sure spdMerlin version is 3.3.2 or later (>=3.3.2 prevents QoS from interfering with speedtests)
-	elif [ $(echo -e "$(grep 'readonly SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
-		echo " ERROR: Need spdMerlin v>=3.3.2 to ensure QoS doesn't interfere with calculated speeds."
+	elif [ $(echo -e "$(grep -m1 'SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
+		echo " ERROR: Need spdMerlin version >= 3.3.2 to ensure QoS doesn't interfere with calculated speeds."
 		echo " ERROR: Try running 'spdmerlin update'"
 		exit 1;	
 	elif [ "$(nvram get qos_enable)" == "0" ]; then
@@ -171,23 +185,23 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	upload_upper_limit=$(echo "$upload_upper_limit*1024" | bc -l)
 	outta_bounds=0
 	if [ $(echo "$Kbps_down < ($download_lower_limit)" | bc -l) -eq 1 ]; then
-   		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit | logger -t $script_name
+   		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit | logger -t $SCRIPT_NAME
    		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit 
     		Kbps_down=$download_lower_limit
 		outta_bounds=1
 	elif [ $(echo "$Kbps_down > $download_upper_limit" | bc -l) -eq 1 ]; then
-   		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit | logger -t $script_name
+   		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit | logger -t $SCRIPT_NAME
    		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit 
    		Kbps_down=$download_upper_limit
 		outta_bounds=1
 	fi
 	if [ $(echo "$Kbps_up < $upload_lower_limit" | bc -l) -eq 1 ]; then
-   		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit | logger -t $script_name
+   		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit | logger -t $SCRIPT_NAME
    		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit 
    		Kbps_up=$upload_lower_limit
 		outta_bounds=1
 	elif [ $(echo "$Kbps_up > $upload_upper_limit" | bc -l) -eq 1 ]; then
-   		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit | logger -t $script_name
+   		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit | logger -t $SCRIPT_NAME
    		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit 
    		Kbps_up=$upload_upper_limit
 		outta_bounds=1
@@ -210,8 +224,8 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 
 	if [ "$test_mode" -eq "0" ]; then
 		#Set Upload/Download Limit
-		printf " -----> Setting QoS Download Speed to %8.1f Kbps ..." $Kbps_down | logger -t $script_name
-		printf " -----> Setting QoS Upload Speed to %8.1f Kbps ..." $Kbps_up | logger -t $script_name
+		printf " -----> Setting QoS Download Speed to %8.1f Kbps ..." $Kbps_down | logger -t $SCRIPT_NAME
+		printf " -----> Setting QoS Upload Speed to %8.1f Kbps ..." $Kbps_up | logger -t $SCRIPT_NAME
 		nvram set qos_ibw=$(echo $Kbps_down | cut -d. -f1)
 		nvram set qos_obw=$(echo $Kbps_up | cut -d. -f1)
         	nvram commit
@@ -258,8 +272,8 @@ update_via_TC() {
                 Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
                 Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
 
-                Rate=$(echo "scale=0; $prevRate*$dscale_factor" | bc -l)
-                Ceil=$(echo "scale=0; $prevCeil*$dscale_factor" | bc -l)
+                Rate=$(echo "$prevRate*$dscale_factor" | bc -l)
+                Ceil=$(echo "$prevCeil*$dscale_factor" | bc -l)
 
 	        printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
 		
@@ -311,12 +325,11 @@ EOF
 	if [ "$test_mode" -eq "1" ]; then
 		echo -e "\n TEST MODE: No changes were made."
 	fi
+	echo
 }
 
 ########### START HERE ###########
-script_name=$(basename $0)
-script_name=$(echo $script_name | tr 'a-z' 'A-Z')
-update
+if [ "$autoupdate" -ne "0" ]; then update; fi;
 check
 get_new_speeds
 update_via_TC
