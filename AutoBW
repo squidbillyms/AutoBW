@@ -23,7 +23,10 @@
 #		    -Check for spdMerlin v3.3.2 or greater to ensure
 #             that QoS will not interfere with calculated speeds
 ######################################################################
-
+readonly SCRIPT_VERSION="v1.2"
+readonly SCRIPT_NAME="AutoBW"
+readonly SCRIPT_BRANCH="master"
+readonly SCRIPT_REPO="""$SCRIPT_NAME""/""$SCRIPT_BRANCH"
 #Scale average values by this factor
 # Adjust to optimize bufferbloat and quality grade at DSLreports.com
 down_scale_factor=0.85
@@ -33,14 +36,14 @@ up_scale_factor=0.85
 # Mainly just to prevent bandwidth from being set too low
 # (or too high)... not worried about upper limit but it is there
 # for the sake of completeness
-download_lower_limit=8   #Mbps
-download_upper_limit=50  #Mbps
-upload_lower_limit=1.0   #Mbps
-upload_upper_limit=50    #Mbps
+download_lower_limit=8    #Mbps
+download_upper_limit=100  #Mbps
+upload_lower_limit=1      #Mbps
+upload_upper_limit=100    #Mbps
 
 #Calculate the average download and upload speeds over this many
 # consecutive spdMerlin runs
-num_spd_tests=1
+num_spd_tests=2
 
 #Pause between successive spdMerlin runs (if num_spd_tests > 1)
 # 0 = no pause, 1 = yes pause
@@ -64,6 +67,28 @@ download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
 test_mode=1
 ######################################################################
 
+update() { #Code by JackYaz, adapted
+doupdate="false"
+        localver=$(grep "SCRIPT_VERSION=" /jffs/scripts/"$SCRIPT_NAME" | grep -m1 -oE 'v[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')
+	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF "squidbillyms" || { echo "Failed to check new version, continuing..."; return 1; }
+                serverver=$(/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep "SCRIPT_VERSION=" | grep -m1 -oE 'v[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})')
+		if [ "$localver" != "$serverver" ]; then
+			doupdate="version"
+		else
+			localmd5="$(md5sum "/jffs/scripts/$SCRIPT_NAME" | awk '{print $1}')"
+			remotemd5="$(curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | md5sum | awk '{print $1}')"
+			if [ "$localmd5" != "$remotemd5" ]; then
+				doupdate="md5"
+			fi
+		fi
+		
+		if [ "$doupdate" != "false" ]; then
+			/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME"
+			chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
+                        echo "$SCRIPT_NAME successfully updated. Please execute it again.
+                        exit 0
+		fi
+}
 check() {	
 	#Check to make sure bc and spdMerlin (v3.3.2 or later) is installed,
 	# QoS is enabled, and FreshJr_QoS is not in delayed start
@@ -284,6 +309,7 @@ EOF
 ########### START HERE ###########
 script_name=$(basename $0)
 script_name=$(echo $script_name | tr 'a-z' 'A-Z')
+update
 check
 get_new_speeds
 update_via_TC
