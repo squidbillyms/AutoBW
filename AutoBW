@@ -81,25 +81,27 @@ update() {	#Adapted from code by Jack Yaz
 	printf "\n AutoUpdate is enabled. Checking for update ...\n"
 	doupdate="false"
 	localver=$(grep "SCRIPT_VERSION=" /jffs/scripts/"$SCRIPT_NAME" | grep -m1 -oE 'v[1-9]([.][0-9])')
-	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF $SCRIPT_AUTHOR || { echo -e " ERROR: Failed to check new version, continuing anyway.\n"; return 1; }
+	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF $SCRIPT_AUTHOR || { echo -e " ERROR: Failed to check new version, continuing anyway."; return 1; }
 	serverver=$(/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep "SCRIPT_VERSION=" | grep -m1 -oE 'v[1-9]([.][0-9])')
 	if [ "$localver" != "$serverver" ]; then
 		doupdate="version"
-		printf " Found new version: this is %s but found %s.\n" $localver $serverver
+		printf " Found new version: this is %s ---> latest version is %s.\n" $localver $serverver
 	else
 		localmd5="$(md5sum "/jffs/scripts/$SCRIPT_NAME" | awk '{print $1}')"
 		remotemd5="$(curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | md5sum | awk '{print $1}')"
 		if [ "$localmd5" != "$remotemd5" ]; then
 			#doupdate="md5"
-			printf " This $SCRIPT_NAME is different than the official version. Just letting you know. :)\n"
+			printf " Something is different about this copy of %s. Just letting you know. :)\n" $SCRIPT_NAME
 		fi
 	fi
 		
 	if [ "$doupdate" != "false" ]; then
-		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME"
+		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME" &> /dev/null
 		chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
-		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n\n" $serverver
+		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n" $serverver
         exit 0
+	else
+		printf " Based on versioning alone, you have the latest version: %s\n" $serverver
 	fi
 }
 
