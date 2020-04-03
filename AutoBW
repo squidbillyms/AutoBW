@@ -80,7 +80,7 @@ doupdate="false"
 		fi
 		
 		if [ "$doupdate" != "false" ]; then
-			/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME" && logger -t "$SCRIPT_NAME" "$SCRIPT_NAME successfully updated"
+			/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME"
 			chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
                         echo "$SCRIPT_NAME successfully updated. Please execute it again.
                         exit 0
