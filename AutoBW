@@ -28,7 +28,7 @@
 readonly SCRIPT_AUTHOR="squidbillyms"
 readonly SCRIPT_VERSION="v1.4"
 readonly SCRIPT_NAME="AutoBW"
-readonly SCRIPT_BRANCH="master"
+readonly SCRIPT_BRANCH="development"
 readonly SCRIPT_REPO="https://raw.githubusercontent.com/$SCRIPT_AUTHOR/$SCRIPT_NAME/$SCRIPT_BRANCH"
 
 #Should I automatically check for and perform updates
@@ -46,7 +46,7 @@ up_scale_factor=0.85
 # Mainly just to prevent bandwidth from being set too low
 # (or too high)... not worried about upper limit but it is there
 # for the sake of completeness
-download_lower_limit=10    #Mbps
+download_lower_limit=10   #Mbps
 download_upper_limit=100  #Mbps
 upload_lower_limit=1      #Mbps
 upload_upper_limit=100    #Mbps
@@ -91,14 +91,14 @@ update() {	#Adapted from code by Jack Yaz
 		remotemd5="$(curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | md5sum | awk '{print $1}')"
 		if [ "$localmd5" != "$remotemd5" ]; then
 			#doupdate="md5"
-			printf " This version of $SCRIPT_NAME is different than the official version. Just letting you know. :)\n"
+			printf " This $SCRIPT_NAME is different than the official version. Just letting you know. :)\n"
 		fi
 	fi
 		
 	if [ "$doupdate" != "false" ]; then
 		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME"
 		chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
-		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n" $serverver
+		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n\n" $serverver
         exit 0
 	fi
 }
@@ -137,10 +137,10 @@ check() {
 }
 
 get_new_speeds() {	#Get new down/up speeds using spdMerlin
-        echo
-        echo "               ----------- SPDMERLIN --------"
-        echo "               Download (Kbps)  Upload (Kbps)"
-        echo "               ---------------  -------------"
+	echo
+	echo "               ----------- SPDMERLIN --------"
+	echo "               Download (Kbps)  Upload (Kbps)"
+	echo "               ---------------  -------------"
 
 	#Calculate average download and upload speeds
 	sum_down=0; sum_up=0; x=1
@@ -213,14 +213,7 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 
 	#Get current QoS down/up speeds
 	old_Kbps_up=$( nvram get qos_obw )
-        old_Kbps_down=$( nvram get qos_ibw )
-        #Dirty hack if 0 values set, to easy avoid error divide by 0
-        if [ "$old_Kbps_up" -eq "0" ]; then
-                old_Kbps_up="1"
-        fi
-        if [ "$old_Kbps_down" -eq "0" ]; then
-                old_Kbps_up="1"
-        fi
+	old_Kbps_down=$( nvram get qos_ibw )
 
 	if [ "$test_mode" -eq "0" ]; then
 		#Set Upload/Download Limit
@@ -228,57 +221,67 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 		printf " -----> Setting QoS Upload Speed to %8.1f Kbps ..." $Kbps_up | logger -t $SCRIPT_NAME
 		nvram set qos_ibw=$(echo $Kbps_down | cut -d. -f1)
 		nvram set qos_obw=$(echo $Kbps_up | cut -d. -f1)
-        	nvram commit
+		nvram commit
 	fi 
 
-        echo
-        echo "               ------------- QOS ------------"
-        echo "               Download (Kbps)  Upload (Kbps)"
-        echo "               ---------------  -------------"
-        printf "%s           %7.1f         %7.1f\n" "Previous" $old_Kbps_down $old_Kbps_up
-        printf "%s   %7.1f         %7.1f\n" "New (from above)" $Kbps_down $Kbps_up
+	echo
+	echo "               ------------- QOS ------------"
+	echo "               Download (Kbps)  Upload (Kbps)"
+	echo "               ---------------  -------------"
+	printf "%s           %7.1f         %7.1f\n" "Previous" $old_Kbps_down $old_Kbps_up
+	printf "%s   %7.1f         %7.1f\n" "New (from above)" $Kbps_down $Kbps_up
 }
 
 update_via_TC() {
-        #read parameters for tc
-        PARMS=""
-        OVERHEAD=$(nvram get qos_overhead)
-        if [ ! -z "$OVERHEAD" ] && [ "$OVERHEAD" -gt "0" ] ; then
-                ATM=$(nvram get qos_atm)
-                if [ "$ATM" == "1" ] ; then
-                        PARMS="overhead $OVERHEAD linklayer atm "
-                else
-                        PARMS="overhead $OVERHEAD linklayer ethernet "
-                fi
-        fi
+	#read parameters for tc
+	PARMS=""
+	OVERHEAD=$(nvram get qos_overhead)
+	if [ ! -z "$OVERHEAD" ] && [ "$OVERHEAD" -gt "0" ] ; then
+			ATM=$(nvram get qos_atm)
+			if [ "$ATM" == "1" ] ; then
+					PARMS="overhead $OVERHEAD linklayer atm "
+			else
+					PARMS="overhead $OVERHEAD linklayer ethernet "
+			fi
+	fi
 
 	#Calculate scale factor based on new/old speeds. This factor will be used to scale class rates & ceils
-        uscale_factor=$( echo "$Kbps_up/$old_Kbps_up" | bc -l )
-        dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l )    
-        printf "%s          %8.3f        %8.3f\n" "Scaling by" $dscale_factor $uscale_factor
+	#If old speeds are 0, just set the scale factor to 1 (cannot divide by 0)
+	if [ "$old_Kbps_up" -eq "0" ]; then
+		uscale_factor=1.0
+	else
+		uscale_factor=$( echo "$Kbps_up/$old_Kbps_up" | bc -l )
+	fi
+	if [ "$old_Kbps_down" -eq "0" ]; then
+		dscale_factor=1.0
+	else
+		dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l ) 
+	fi
 
-        echo
+	printf "%s          %8.3f        %8.3f\n" "Scaling by" $dscale_factor $uscale_factor
+
+	echo
 	echo "              ============================ DOWNLOAD ============================="
-        echo "               ------------- RATE -----------    ------------- CEIL -----------"
-        echo "Class          Previous (Kbps)    New (Kbps)     Previous (Kbps)    New (Kbps) "
-        echo "-----          ---------------  -------------    ---------------  -------------"
-        while read -r line;
-        do
-        	class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
-                prio=$( echo ${class} | cut -c 2 )
+	echo "               ------------- RATE -----------    ------------- CEIL -----------"
+	echo "Class          Previous (Kbps)    New (Kbps)     Previous (Kbps)    New (Kbps) "
+	echo "-----          ---------------  -------------    ---------------  -------------"
+	while read -r line;
+	do
+			class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
+			prio=$( echo ${class} | cut -c 2 )
 
-                prevRate=$( echo ${line} | awk -F"rate |Kbit" '{print $2}' )
-                prevCeil=$( echo ${line} | awk -F"ceil |Kbit" '{print $3}' )
-                Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+			prevRate=$( echo ${line} | awk -F"rate |Kbit" '{print $2}' )
+			prevCeil=$( echo ${line} | awk -F"ceil |Kbit" '{print $3}' )
+			Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+			Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
 
-                Rate=$(echo "$prevRate*$dscale_factor" | bc -l)
-                Ceil=$(echo "$prevCeil*$dscale_factor" | bc -l)
+			Rate=$(echo "$prevRate*$dscale_factor" | bc -l)
+			Ceil=$(echo "$prevCeil*$dscale_factor" | bc -l)
 
-	        printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+			printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
 		
-		#Debug
-		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
+			#Debug
+			#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
 
 	        if [ "$test_mode" -eq "0" ]; then
 			Rate=$(echo $Rate | cut -d. -f1)
@@ -286,40 +289,40 @@ update_via_TC() {
 			tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
      		fi
 
-        done <<EOF
+	done <<EOF
                 $( tc class show dev br0 | grep "parent 1:1 " )
 EOF
  	
 	echo
 	echo "              ============================= UPLOAD ============================="
-        echo "               ------------- RATE -----------    ------------- CEIL -----------"
-        echo "Class          Previous (Kbps)    New (Kbps)     Previous (Kbps)    New (Kbps) "
-        echo "-----          ---------------  -------------    ---------------  -------------"
-        while read -r line;
-        do
-        	class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
-                prio=$( echo ${class} | cut -c 2 )
+	echo "               ------------- RATE -----------    ------------- CEIL -----------"
+	echo "Class          Previous (Kbps)    New (Kbps)     Previous (Kbps)    New (Kbps) "
+	echo "-----          ---------------  -------------    ---------------  -------------"
+	while read -r line;
+	do
+		class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
+			prio=$( echo ${class} | cut -c 2 )
 
-                prevRate=$( echo ${line} | awk -F"rate |Kbit" '{print $2}' )
-                prevCeil=$( echo ${line} | awk -F"ceil |Kbit" '{print $3}' )
-                Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-                Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+			prevRate=$( echo ${line} | awk -F"rate |Kbit" '{print $2}' )
+			prevCeil=$( echo ${line} | awk -F"ceil |Kbit" '{print $3}' )
+			Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+			Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
 
-                Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
-                Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
+			Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
+			Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
 
-	        printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
-		
+		printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+	
 		#Debug
 		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
 
-	        if [ "$test_mode" -eq "0" ]; then
-			Rate=$(echo $Rate | cut -d. -f1)
-			Ceil=$(echo $Ceil | cut -d. -f1)
-			tc class change dev eth0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
-        	fi
+		if [ "$test_mode" -eq "0" ]; then
+		Rate=$(echo $Rate | cut -d. -f1)
+		Ceil=$(echo $Ceil | cut -d. -f1)
+		tc class change dev eth0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
+		fi
 
-        done <<EOF
+	done <<EOF
                 $( tc class show dev eth0 | grep "parent 1:1" )
 EOF
 	if [ "$test_mode" -eq "1" ]; then
