@@ -272,7 +272,7 @@ update_via_TC() {
 			class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
 			prio=$( echo ${class} | cut -c 2 )
 
-						prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
+			prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
 			prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
 			rateUnit=$( echo ${line} | cut -d' ' -f11)
 			rateUnit=${rateUnit//[0-9]/}
@@ -326,38 +326,38 @@ EOF
 	while read -r line;
 	do
 		class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
-			prio=$( echo ${class} | cut -c 2 )
+		prio=$( echo ${class} | cut -c 2 )
 
-			prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
-			prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
-			rateUnit=$( echo ${line} | cut -d' ' -f11)
-			rateUnit=${rateUnit//[0-9]/}
-			ceilUnit=$( echo ${line} | cut -d' ' -f15)
-			ceilUnit=${ceilUnit//[0-9]/}
-			if [ "$rateUnit" = "bit" ]; then
-				prevRate=$( echo "$prevRate*0.001" | bc -l)
-			fi
-			if [ "$rateUnit" = "Mbit" ]; then
-				prevRate=$( echo "$prevRate*1000" | bc -l)
-			fi
-			if [ "$rateUnit" = "Gbit" ]; then
-				prevRate=$( echo "$prevRate*1000000" | bc -l)
-			fi
+		prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
+		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
+		rateUnit=$( echo ${line} | cut -d' ' -f11)
+		rateUnit=${rateUnit//[0-9]/}
+		ceilUnit=$( echo ${line} | cut -d' ' -f15)
+		ceilUnit=${ceilUnit//[0-9]/}
+		if [ "$rateUnit" = "bit" ]; then
+			prevRate=$( echo "$prevRate*0.001" | bc -l)
+		fi
+		if [ "$rateUnit" = "Mbit" ]; then
+			prevRate=$( echo "$prevRate*1000" | bc -l)
+		fi
+		if [ "$rateUnit" = "Gbit" ]; then
+			prevRate=$( echo "$prevRate*1000000" | bc -l)
+		fi
 
-			if [ "$ceilUnit" = "bit" ]; then
-				prevCeil=$( echo "$prevCeil*0.001" | bc -l)
-			fi
-			if [ "$ceilUnit" = "Mbit" ]; then
-				prevCeil=$( echo "$prevCeil*1000" | bc -l)
-			fi
-			if [ "$ceilUnit" = "Gbit" ]; then
-				prevCeil=$( echo "$prevCeil*1000000" | bc -l)
-			fi
-			Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-			Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+		if [ "$ceilUnit" = "bit" ]; then
+			prevCeil=$( echo "$prevCeil*0.001" | bc -l)
+		fi
+		if [ "$ceilUnit" = "Mbit" ]; then
+			prevCeil=$( echo "$prevCeil*1000" | bc -l)
+		fi
+		if [ "$ceilUnit" = "Gbit" ]; then
+			prevCeil=$( echo "$prevCeil*1000000" | bc -l)
+		fi
+		Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
+		Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
 
-			Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
-			Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
+		Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
+		Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
 
 		printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
 	
