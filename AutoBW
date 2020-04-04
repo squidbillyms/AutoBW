@@ -278,13 +278,18 @@ update_via_TC() {
 			rateUnit=${rateUnit//[0-9]/}
 			ceilUnit=$( echo ${line} | cut -d' ' -f15)
 			ceilUnit=${ceilUnit//[0-9]/}
+			if [ "$rateUnit" = "bit" ]; then
+				prevRate=$( echo "$prevRate*0.001" | bc -l)
+			fi
 			if [ "$rateUnit" = "Mbit" ]; then
 				prevRate=$( echo "$prevRate*1000" | bc -l)
 			fi
 			if [ "$rateUnit" = "Gbit" ]; then
 				prevRate=$( echo "$prevRate*1000000" | bc -l)
 			fi
-			
+			if [ "$ceilUnit" = "bit" ]; then
+				prevRate=$( echo "$prevRate*0.001" | bc -l)
+			fi
 			if [ "$ceilUnit" = "Mbit" ]; then
 				prevRate=$( echo "$prevRate*1000" | bc -l)
 			fi
@@ -328,13 +333,18 @@ EOF
 			rateUnit=${rateUnit//[0-9]/}
 			ceilUnit=$( echo ${line} | cut -d' ' -f15)
 			ceilUnit=${ceilUnit//[0-9]/}
+			if [ "$rateUnit" = "bit" ]; then
+				prevRate=$( echo "$prevRate*0.001" | bc -l)
+			fi
 			if [ "$rateUnit" = "Mbit" ]; then
 				prevRate=$( echo "$prevRate*1000" | bc -l)
 			fi
 			if [ "$rateUnit" = "Gbit" ]; then
 				prevRate=$( echo "$prevRate*1000000" | bc -l)
 			fi
-			
+			if [ "$ceilUnit" = "bit" ]; then
+				prevRate=$( echo "$prevRate*0.001" | bc -l)
+			fi
 			if [ "$ceilUnit" = "Mbit" ]; then
 				prevRate=$( echo "$prevRate*1000" | bc -l)
 			fi
