@@ -287,14 +287,15 @@ update_via_TC() {
 			if [ "$rateUnit" = "Gbit" ]; then
 				prevRate=$( echo "$prevRate*1000000" | bc -l)
 			fi
+
 			if [ "$ceilUnit" = "bit" ]; then
-				prevRate=$( echo "$prevRate*0.001" | bc -l)
+				prevCeil=$( echo "$prevCeil*0.001" | bc -l)
 			fi
 			if [ "$ceilUnit" = "Mbit" ]; then
-				prevRate=$( echo "$prevRate*1000" | bc -l)
+				prevCeil=$( echo "$prevCeil*1000" | bc -l)
 			fi
 			if [ "$ceilUnit" = "Gbit" ]; then
-				prevRate=$( echo "$prevRate*1000000" | bc -l)
+				prevCeil=$( echo "$prevCeil*1000000" | bc -l)
 			fi
 			Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
 			Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
@@ -342,14 +343,15 @@ EOF
 			if [ "$rateUnit" = "Gbit" ]; then
 				prevRate=$( echo "$prevRate*1000000" | bc -l)
 			fi
+
 			if [ "$ceilUnit" = "bit" ]; then
-				prevRate=$( echo "$prevRate*0.001" | bc -l)
+				prevCeil=$( echo "$prevCeil*0.001" | bc -l)
 			fi
 			if [ "$ceilUnit" = "Mbit" ]; then
-				prevRate=$( echo "$prevRate*1000" | bc -l)
+				prevCeil=$( echo "$prevCeil*1000" | bc -l)
 			fi
 			if [ "$ceilUnit" = "Gbit" ]; then
-				prevRate=$( echo "$prevRate*1000000" | bc -l)
+				prevCeil=$( echo "$prevCeil*1000000" | bc -l)
 			fi
 			Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
 			Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
