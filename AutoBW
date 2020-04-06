@@ -67,11 +67,11 @@ pause_this_long=15s
 #spdMerlin command
 spdMer_command="/jffs/scripts/spdmerlin generate"
 
-#Use VPN values? If no, set 0. If yes, specify VPN client number
-Use_VPN=0
+#Use VPN values? If no, leave commented. If yes, specify VPN client number
+#Use_VPN=0
 
 #Location of upload/download stats
-if [ Use_VPN -eq 0 ]; then
+if [ -z "$Use_VPN" ]; then
   upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm"
   download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
 else
