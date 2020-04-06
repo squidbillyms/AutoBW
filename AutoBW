@@ -25,7 +25,7 @@
 # v1.4 (4/03/2020): Added option for automatic updates
 #		    -If turned on, check for updates. If found then update.
 # v1.5 (4/05/2020): Now handles VPN and Gbps|Mbps|Kbps rates/ceils
-#		    -Use VPN values, if defined (thanks maghuro)
+#			-Use VPN values, if defined (thanks maghuro)
 #			-Handle rate/ceil units other than just Kbps (thanks peepsnet)
 ######################################################################
 readonly SCRIPT_AUTHOR="squidbillyms"
