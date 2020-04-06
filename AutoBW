@@ -24,6 +24,9 @@
 #             that QoS will not interfere with calculated speeds
 # v1.4 (4/03/2020): Added option for automatic updates
 #		    -If turned on, check for updates. If found then update.
+# v1.5 (4/05/2020): Now handles VPN and Gbps|Mbps|Kbps rates/ceils
+#		    -Use VPN values, if defined (thanks maghuro)
+#			-Handle rate/ceil units other than just Kbps (thanks peepsnet)
 ######################################################################
 readonly SCRIPT_AUTHOR="squidbillyms"
 readonly SCRIPT_VERSION="v1.4"
@@ -35,7 +38,7 @@ readonly SCRIPT_REPO="https://raw.githubusercontent.com/$SCRIPT_AUTHOR/$SCRIPT_N
 # 0=no ( I will update manually when I am ready manually), 1=yes do it for me
 # update manually using the following:
 #curl "https://raw.githubusercontent.com/squidbillyms/AutoBW/master/AutoBW" -o /jffs/scripts/AutoBW && chmod 755 AutoBW
-autoupdate=1
+autoupdate=0
 
 #Scale average values by this factor
 # Adjust to optimize bufferbloat and quality grade at DSLreports.com
@@ -61,11 +64,11 @@ pause_between_test=0
 #If yes (or 1), pause for how long (will be used with sleep command)
 pause_this_long=15s
 
-#Use VPN values? If no, set 0. If yes, specify VPN client number
-Use_VPN=0
-
 #spdMerlin command
 spdMer_command="/jffs/scripts/spdmerlin generate"
+
+#Use VPN values? If no, set 0. If yes, specify VPN client number
+Use_VPN=0
 
 #Location of upload/download stats
 if [ Use_VPN -eq 0 ]; then
