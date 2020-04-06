@@ -35,7 +35,7 @@ readonly SCRIPT_REPO="https://raw.githubusercontent.com/$SCRIPT_AUTHOR/$SCRIPT_N
 # 0=no ( I will update manually when I am ready manually), 1=yes do it for me
 # update manually using the following:
 #curl "https://raw.githubusercontent.com/squidbillyms/AutoBW/master/AutoBW" -o /jffs/scripts/AutoBW && chmod 755 AutoBW
-autoupdate=0
+autoupdate=1
 
 #Scale average values by this factor
 # Adjust to optimize bufferbloat and quality grade at DSLreports.com
@@ -61,14 +61,20 @@ pause_between_test=0
 #If yes (or 1), pause for how long (will be used with sleep command)
 pause_this_long=15s
 
+#Use VPN values? If no, set 0. If yes, specify VPN client number
+Use_VPN=0
+
 #spdMerlin command
 spdMer_command="/jffs/scripts/spdmerlin generate"
 
-#Location of upload stats
-upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm"
-
-#Location of download stats
-download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
+#Location of upload/download stats
+if [ Use_VPN -eq 0 ]; then
+  upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm"
+  download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
+else
+  upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_VPNC$Use_VPN.htm"
+  download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_VPNC$Use_VPN.htm"
+fi
 
 #Test Mode (run and calculate but do not make any changes)
 # meaning no "nvram commit" or "tc class change" commands 
