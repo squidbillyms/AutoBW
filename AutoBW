@@ -71,7 +71,7 @@ spdMer_command="/jffs/scripts/spdmerlin generate"
 Use_VPN=0
 
 #Location of upload/download stats
-if [ Use_VPN -eq 0 ]; then
+if [ $Use_VPN -eq 0 ]; then
   upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm"
   download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
 else
