@@ -146,9 +146,9 @@ check() {
 
 get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	echo
-	echo "               ----------- SPDMERLIN --------"
-	echo "               Download (Kbps)  Upload (Kbps)"
-	echo "               ---------------  -------------"
+	echo "               ---------------- SPDMERLIN -------------"
+	echo "                 Download (Kbps)       Upload (Kbps)"
+	echo "               -------------------  -------------------"
 
 	#Calculate average download and upload speeds
 	sum_down=0; sum_up=0; x=1
@@ -164,7 +164,7 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
                 sum_down=$(echo $sum_down+$Kbps_down | bc -l)
                 sum_up=$(echo $sum_up+$Kbps_up | bc -l)
 
-		printf "\rTest %2.0f of %2.0f      %7.1f         %7.1f\n" $x $num_spd_tests $Kbps_down $Kbps_up
+		printf "\rTest %2.0f of %2.0f    %10.1f           %10.1f\n" $x $num_spd_tests $Kbps_down $Kbps_up
 
   		x=$(( $x + 1 ))
 		if [ "$pause_between_test" -eq 1 ] && [ "$x" -le "$num_spd_tests" ]; then 
@@ -177,14 +177,14 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	Kbps_down=$(echo "$sum_down/$num_spd_tests" | bc -l)
 	Kbps_up=$(echo "$sum_up/$num_spd_tests" | bc -l)
 	if [ "$num_spd_tests" -gt "1" ]; then
-		printf "Average            %7.1f         %7.1f\n" $Kbps_down $Kbps_up
+		printf "Average          %10.1f           %10.1f\n" $Kbps_down $Kbps_up
 	fi
 
 	#Apply user-defined scale factors
-	printf "Scale Factors         %5.2f           %5.2f\n" $down_scale_factor $up_scale_factor
+	printf "Scale Factors         %5.2f                %5.2f\n" $down_scale_factor $up_scale_factor
 	Kbps_down=$(echo "$Kbps_down*$down_scale_factor" | bc -l)
 	Kbps_up=$(echo "$Kbps_up*$up_scale_factor" | bc -l)
-	printf "Scaled Speeds      %7.1f         %7.1f\n" $Kbps_down $Kbps_up
+	printf "Scaled Speeds    %10.1f           %10.1f\n" $Kbps_down $Kbps_up
 
 	#Make sure download and uploads speeds are within defined user-defined limits above
 	download_lower_limit=$(echo "$download_lower_limit*1024" | bc -l)
@@ -216,7 +216,7 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	fi
 
 	if [ "$outta_bounds" -eq "1" ]; then
-		printf "Corrected Speeds   %7.1f         %7.1f\n" $Kbps_down $Kbps_up
+		printf "Corrected Speeds   %10.1f            %10.1f\n" $Kbps_down $Kbps_up
 	fi	
 
 	#Get current QoS down/up speeds
@@ -233,11 +233,13 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	fi 
 
 	echo
-	echo "               ------------- QOS ------------"
-	echo "               Download (Kbps)  Upload (Kbps)"
-	echo "               ---------------  -------------"
-	printf "%s           %7.1f         %7.1f\n" "Previous" $old_Kbps_down $old_Kbps_up
-	printf "%s   %7.1f         %7.1f\n" "New (from above)" $Kbps_down $Kbps_up
+	echo "               ----------------- QOS ----------------"
+	echo "                 Download (Kbps)      Upload (Kbps)"
+	echo "               -------------------  -----------------"
+	printf "%s           %10.1f          %10.1f\n" "Previous" $old_Kbps_down $old_Kbps_up
+	printf "%s   %10.1f          %10.1f\n" "New (from above)" $Kbps_down $Kbps_up
+	
+	
 }
 
 update_via_TC() {
@@ -266,62 +268,114 @@ update_via_TC() {
 		dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l ) 
 	fi
 
-	printf "%s          %8.3f        %8.3f\n" "Scaling by" $dscale_factor $uscale_factor
+	printf "%s           %8.3f            %8.3f\n" "Scaling by" $dscale_factor $uscale_factor
 
 	echo
-	echo "              ============================ DOWNLOAD ============================="
-	echo "               ------------- RATE -----------    ------------- CEIL -----------"
-	echo "Class          Previous (Kbps)    New (Kbps)     Previous (Kbps)    New (Kbps) "
-	echo "-----          ---------------  -------------    ---------------  -------------"
+	echo "              ====================================== DOWNLOAD ======================================"
+	echo "               ----------------- RATE -----------------    ----------------- CEIL -----------------"
+	echo "Class            Previous (Kbps)        New (Kbps)           Previous (Kbps)         New (Kbps) "
+	echo "-----          -------------------  -------------------    -------------------  -------------------"
 	while read -r line;
 	do
-			class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
-			prio=$( echo ${class} | cut -c 2 )
+		class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
+		prio=$( echo ${class} | cut -c 2 )
 
-			prevRate=$( echo ${line} | awk -F"rate |Kbit" '{print $2}' )
-			prevCeil=$( echo ${line} | awk -F"ceil |Kbit" '{print $3}' )
-			Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-			Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
-
-			Rate=$(echo "$prevRate*$dscale_factor" | bc -l)
-			Ceil=$(echo "$prevCeil*$dscale_factor" | bc -l)
-
-			printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+		prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
+		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
+		rateUnit=$( echo ${line} | cut -d' ' -f11)
+		rateUnit=${rateUnit//[0-9]/}
+		ceilUnit=$( echo ${line} | cut -d' ' -f15)
+		ceilUnit=${ceilUnit//[0-9]/}
+		if [ "$rateUnit" = "bit" ]; then
+			prevRate=$( echo "$prevRate*0.001" | bc -l)
+		fi
+		if [ "$rateUnit" = "Mbit" ]; then
+			prevRate=$( echo "$prevRate*1000" | bc -l)
+		fi
+		if [ "$rateUnit" = "Gbit" ]; then
+			prevRate=$( echo "$prevRate*1000000" | bc -l)
+		fi
 		
-			#Debug
-			#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
+		if [ "$ceilUnit" = "bit" ]; then
+			prevCeil=$( echo "$prevCeil*0.001" | bc -l)
+		fi
+		if [ "$ceilUnit" = "Mbit" ]; then
+			prevCeil=$( echo "$prevCeil*1000" | bc -l)
+		fi
+		if [ "$ceilUnit" = "Gbit" ]; then
+			prevCeil=$( echo "$prevCeil*1000000" | bc -l)
+		fi
 
-	        if [ "$test_mode" -eq "0" ]; then
-			Rate=$(echo $Rate | cut -d. -f1)
-			Ceil=$(echo $Ceil | cut -d. -f1)
-			tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
-     		fi
+		Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-Z0-9]*\).*/\1/p' )
+		Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-Z0-9]*\).*/\1/p' )
+
+		Rate=$(echo "$prevRate*$dscale_factor" | bc -l)
+		Ceil=$(echo "$prevCeil*$dscale_factor" | bc -l)
+
+		printf "%2.0f                 %10.1f         %10.1f                %10.1f         %10.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+	
+		#Debug
+		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
+
+		#echo -e "tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}"
+		if [ "$test_mode" -eq "0" ]; then
+		Rate=$(echo $Rate | cut -d. -f1)
+		Ceil=$(echo $Ceil | cut -d. -f1)
+		
+		tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
+		
+		fi
 
 	done <<EOF
                 $( tc class show dev br0 | grep "parent 1:1 " )
 EOF
  	
 	echo
-	echo "              ============================= UPLOAD ============================="
-	echo "               ------------- RATE -----------    ------------- CEIL -----------"
-	echo "Class          Previous (Kbps)    New (Kbps)     Previous (Kbps)    New (Kbps) "
-	echo "-----          ---------------  -------------    ---------------  -------------"
+	echo "              ======================================= UPLOAD ======================================="
+	echo "               ----------------- RATE -----------------    ----------------- CEIL -----------------"
+	echo "Class            Previous (Kbps)        New (Kbps)           Previous (Kbps)         New (Kbps) "
+	echo "-----          -------------------  -------------------    -------------------  -------------------"
 	while read -r line;
 	do
 		class=$( echo ${line} | sed -n -e 's/.*class htb 1://p' | cut -d' ' -f1 )
-			prio=$( echo ${class} | cut -c 2 )
+		prio=$( echo ${class} | cut -c 2 )
 
-			prevRate=$( echo ${line} | awk -F"rate |Kbit" '{print $2}' )
-			prevCeil=$( echo ${line} | awk -F"ceil |Kbit" '{print $3}' )
-			Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-z0-9]*\).*/\1/p' )
-			Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-z0-9]*\).*/\1/p' )
+		prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
+		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
+		rateUnit=$( echo ${line} | cut -d' ' -f11)
+		rateUnit=${rateUnit//[0-9]/}
+		ceilUnit=$( echo ${line} | cut -d' ' -f15)
+		ceilUnit=${ceilUnit//[0-9]/}
+		if [ "$rateUnit" = "bit" ]; then
+			prevRate=$( echo "$prevRate*0.001" | bc -l)
+		fi
+		if [ "$rateUnit" = "Mbit" ]; then
+			prevRate=$( echo "$prevRate*1000" | bc -l)
+		fi
+		if [ "$rateUnit" = "Gbit" ]; then
+			prevRate=$( echo "$prevRate*1000000" | bc -l)
+		fi
+		
+		if [ "$ceilUnit" = "bit" ]; then
+			prevCeil=$( echo "$prevCeil*0.001" | bc -l)
+		fi
+		if [ "$ceilUnit" = "Mbit" ]; then
+			prevCeil=$( echo "$prevCeil*1000" | bc -l)
+		fi
+		if [ "$ceilUnit" = "Gbit" ]; then
+			prevCeil=$( echo "$prevCeil*1000000" | bc -l)
+		fi
+		
+		Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-Z0-9]*\).*/\1/p' )
+		Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-Z0-9]*\).*/\1/p' )
 
-			Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
-			Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
+		Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
+		Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
 
-		printf "%2.0f                 %7.1f         %7.1f           %7.1f         %7.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+		printf "%2.0f                 %10.1f         %10.1f                %10.1f         %10.1f\n" $class $prevRate $Rate $prevCeil $Ceil
 	
 		#Debug
+		#echo -e "$line\n"
 		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
 
 		if [ "$test_mode" -eq "0" ]; then
