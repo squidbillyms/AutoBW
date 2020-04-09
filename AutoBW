@@ -660,7 +660,7 @@ EOF
 		prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
 		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
 
-		rateUnit=$( echo ${line} | awk -F"rate | ceil" '{print $2}' )
+		rateUnit=$( echo ${line} | awk -F"rate | overhead | ceil" '{print $2}' )
 		#rateUnit=$( echo ${line} | cut -d' ' -f11)
 		rateUnit=${rateUnit//[0-9]/}
 
