@@ -259,7 +259,6 @@ parseConfig() {
 	fi
 }
 
-	
 ##############################
 ### UPDATE
 ##############################
@@ -411,7 +410,12 @@ prereqCheck() {
 	fi
 }
 
-
+##############################
+### GET_NEW_SPEEDS
+##############################
+# Either read in or run spdMerlin to calculate to download/upload speeds
+# Avergae these values to get new unscaled QoS bandwidth values
+#################################################################################
 get_new_speeds() {
 	if [ -n "$read_bw" ]; then
 		#Already checked during prereqChecks ... so not sure this check is necessary
@@ -554,6 +558,12 @@ get_new_speeds() {
 	printf "%s   %10.1f          %10.1f\n" "New (from above)" $Kbps_down $Kbps_up
 }
 
+##############################
+### UPDATE_VIA_TC
+##############################
+# Using old and new speeds, scale each classes rate/ceil values and set
+#  them using the tc (traffic control) command
+#################################################################################
 update_via_TC() {
 	#read parameters for tc
 	PARMS=""
@@ -901,23 +911,23 @@ if [ "$#" -ne 0 ]; then
 			echo "  Available commands:"
         	echo ""
         	echo "  AutoBW                    (no switches) run using defaults in config file "
-			echo "  AutoBW -help              displays this information"
+		echo "  AutoBW -help              displays this information"
         	echo "  AutoBW -about             explains the functionality of AutoBW"
         	echo "  AutoBW -config            Generates a default config file (it will not overwrite existing config file without permission)"
-			echo "                            Upon installing, this should be done before anything else"	
-			echo "  AutoBW -check             check for all prerequisites"	
+		echo "                            Upon installing, this should be done before anything else"	
+		echo "  AutoBW -check             check for all prerequisites"	
         	echo "  AutoBW -update            checks for/performs update"
         	echo "  AutoBW -sim               simulation mode; do not make ANY changes"
         	echo "  AutoBW -num_tests #       average bandwidth over # spdMerlin values"
         	echo "  AutoBW -scale_by          scale bandwidth by these factors"
-			echo "                            -scale_by upload-factor download-factor"
+		echo "                            -scale_by upload-factor download-factor"
         	echo "  AutoBW -dl_limits         download bandwidth limits (in Mbps)"
-			echo "                            -dl_limits dl_lower_limit dl_upper_limit"
+		echo "                            -dl_limits dl_lower_limit dl_upper_limit"
         	echo "  AutoBW -ul_limits         upload bandwidth limits (in Mbps)"
-			echo "                            -ul_limits ul_lower_limit ul_upper_limit"
+		echo "                            -ul_limits ul_lower_limit ul_upper_limit"
         	echo "  AutoBW -set_bw            set bandwidth to these values (in Mbps)"
         	echo "                            -set_BW upload_BW download_BW	"
-			echo "  AutoBW -read_bw           read in bandwidth from spdMerlin daily csv files"
+		echo "  AutoBW -read_bw           read in bandwidth from spdMerlin daily csv files"
         	echo "  AutoBW -uninstall         uninstall script and delete from disk "
         	echo ""
 			echo " Examples: AutoBW -sim -num_test 4"
