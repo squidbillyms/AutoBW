@@ -576,12 +576,12 @@ update_via_TC() {
 
 	#Calculate scale factor based on new/old speeds. This factor will be used to scale class rates & ceils
 	#If old speeds are 0, just set the scale factor to 1 (cannot divide by 0)
-	if [ "$old_Kbps_up" -eq "0" ] || [ -z "$old_Kbps_up" ]; then
+	if [ -z "$old_Kbps_up" ] || [ "$old_Kbps_up" -eq "0" ]; then
 		uscale_factor=1.0
 	else
 		uscale_factor=$( echo "$Kbps_up/$old_Kbps_up" | bc -l )
 	fi
-	if [ "$old_Kbps_down" -eq "0" ] || [ -z "$old_Kbps_down" ]; then
+	if [ -z "$old_Kbps_down" ] || [ "$old_Kbps_down" -eq "0" ]; then
 		dscale_factor=1.0
 	else
 		dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l ) 
@@ -601,9 +601,13 @@ update_via_TC() {
 
 		prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
 		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
-		rateUnit=$( echo ${line} | cut -d' ' -f11)
+
+		rateUnit=$( echo ${line} | awk -F"rate | ceil" '{print $2}' )
+		#rateUnit=$( echo ${line} | cut -d' ' -f11)
 		rateUnit=${rateUnit//[0-9]/}
-		ceilUnit=$( echo ${line} | cut -d' ' -f13)
+
+		ceilUnit=$( echo ${line} | awk -F"ceil | burst" '{print $2}' )
+		#ceilUnit=$( echo ${line} | cut -d' ' -f13)
 		ceilUnit=${ceilUnit//[0-9]/}
 
 		Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-Z0-9]*\).*/\1/p' )
