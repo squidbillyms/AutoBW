@@ -144,9 +144,9 @@ config() {
 		# for the sake of completeness
 		# Units are Mbps
 		download_lower_limit=10
-		download_upper_limit=100
+		download_upper_limit=500
 		upload_lower_limit=1
-		upload_upper_limit=100
+		upload_upper_limit=500
 
 		#Calculate the average download and upload speeds over this many
 		# consecutive spdMerlin runs
@@ -602,7 +602,7 @@ update_via_TC() {
 		prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
 		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
 
-		rateUnit=$( echo ${line} | awk -F"rate | overhead | ceil" '{print $2}' )
+		rateUnit=$( echo ${line} | awk -F"rate | overhead| ceil" '{print $2}' )
 		#rateUnit=$( echo ${line} | cut -d' ' -f11)
 		rateUnit=${rateUnit//[0-9]/}
 
@@ -660,7 +660,7 @@ EOF
 		prevRate=$( echo ${line} | awk -F"rate |K?M?G?bit" '{print $2}' )
 		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
 
-		rateUnit=$( echo ${line} | awk -F"rate | overhead | ceil" '{print $2}' )
+		rateUnit=$( echo ${line} | awk -F"rate | overhead| ceil" '{print $2}' )
 		#rateUnit=$( echo ${line} | cut -d' ' -f11)
 		rateUnit=${rateUnit//[0-9]/}
 
