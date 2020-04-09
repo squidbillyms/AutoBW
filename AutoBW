@@ -313,16 +313,14 @@ prereqCheck() {
                 echo -e " [ ${cfG}X$cfN ] AsusWRT-Merlin version checked!"
         else
                 echo -e " [ ${cfR}X$cfN ] ERROR: AsusWRT-Merlin firmware version not comptible."
-                echo "       Upgrade to the latest version to continue"
-                echo
+                echo -e "       Upgrade to the latest version to continue\n"
                 gtg=0
 		logIt "ERROR: AsusWRT-Merlin firmware version not comptible."
         fi
         bc -v &> /dev/null
         if [ "$?" -ne 0 ]; then
                 echo -e " [ ${cfR}X$cfN ] ERROR: 'bc' is required but does not appear to be available."
-                echo "       Install bc by typing: opkg install bc"
-                echo
+                echo -e "       Install bc by typing: opkg install bc\n"
                 gtg=0
 		logIt "ERROR: 'bc' is required but does not appear to be available."
         else
@@ -330,9 +328,8 @@ prereqCheck() {
         fi
         if [ ! -x "$spdMerlin_Path" ]; then
                 echo -e " [ ${cfR}X$cfN ] ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' "
-                echo "       Install spdMerlin by running: amtm"
-                echo "       and selecting spdMerlin"
-                echo
+                echo -e "       Install spdMerlin by running: amtm"
+                echo -e "       and selecting spdMerlin\n"
                 gtg=0
 		logIt "ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' "
         else
@@ -341,8 +338,7 @@ prereqCheck() {
         #Check to make sure spdMerlin version is 3.3.2 or later (>=3.3.2 prevents QoS from interfering with speedtests)
         if [ $(echo -e "$(grep -m1 'SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
                 echo -e " [ ${cfR}X$cfN ] ERROR: Need spdMerlin version >= 3.3.2 to ensure QoS doesn't interfere with calculated speeds."
-                echo "       Try running 'spdmerlin update'"
-                echo
+                echo -e "       Try running 'spdmerlin update'\n"
                 gtg=0
 		logIt "ERROR: Need spdMerlin version >= 3.3.2 to ensure QoS doesn't interfere with calculated speeds."
         else
@@ -350,9 +346,8 @@ prereqCheck() {
         fi
         if [ -x "$spdMerlin_lock" ]; then
                 echo -e " [ ${cfR}X$cfN ] ERROR: It appears spdMerlin is currently running."
-                echo "       Try again in 2 min"
-                echo "       If it still fails try running 'spdmerlin' first"
-                echo
+                echo -e "       Try again in 2 min"
+                echo -e "       If it still fails try running 'spdmerlin' first\n"
                 gtg=0
 		logIt "ERROR: It appears spdMerlin is currently running."
         else
@@ -362,34 +357,35 @@ prereqCheck() {
                 echo -e " [ ${cfG}X$cfN ] spdMerlin Stats found"
         else
                 echo -e " [ ${cfR}X$cfN ] ERROR: spdMerlin stats not found."
-                echo "       Try again in a minute or two."
-                echo "       If it still fails try running 'spdmerlin' first"
-                echo
+                echo -e "       Try again in a minute or two."
+                echo -e "       If it still fails try running 'spdmerlin' first\n"
                 gtg=0
 		logIt "ERROR: spdMerlin stats not found."
         fi
+	#Determine if QoS is enabled and if so is it adaptive or traditional
         if [ "$(nvram get qos_enable)" == "0" ]; then
                 echo -e " [ ${cfR}X$cfN ] ERROR: QoS does not appear to be enabled."
-                echo "       Please enable QOS in the Web Interface(webUI) and retry."
-                echo
+                echo -e "       Please enable QOS in the Web Interface(webUI) and retry.\n"
                 gtg=0
-		logIt "ERROR: Adaptive QoS does not appear to be enabled."
-        else
-		#Traditional or Adaptive QoS enabled
-		if [ "$(tc class show dev eth0 | grep 'parent 1:1' | wc -l)" -eq "8" ] && \
-		   [ "$(tc class show dev br0 | grep 'parent 1:1' | wc -l)" -eq "8" ]; then
-                	echo -e " [ ${cfG}X$cfN ] Adaptive QOS Enabled"
-			QoS=adap
-		else
-			echo -e " [ ${cfG}X$cfN ] Traditional QOS Enabled"
-			QoS=trad
-		fi
-        fi
+		logIt "ERROR: QoS does not appear to be enabled."
+        elif [ "$(nvram get qos_type)" == "1" ]; then
+        	echo -e " [ ${cfG}X$cfN ] Adaptive QOS Enabled"
+        	QoS=adap
+	elif [ "$(nvram get qos_type)" == "0" ]; then
+        	echo -e " [ ${cfG}X$cfN ] Traditional QOS Enabled"
+       		QoS=trad
+	else
+		echo -e " [ ${cfR}X$cfN ] ERROR: QoS does not appear to be adaptive or traditional."
+  		echo -e "       Please enable QOS (adaptive or traditional) in the Web Interface(webUI) and retry.\n"
+        	gtg=0
+		logIt "ERROR: QoS does not appear to be adaptive or traditional."
+	fi
+	#Does AutoBW config file exist
 	if [ -f "$SCRIPT_CONF" ]; then
 		echo -e " [ ${cfG}X$cfN ] AutoBW config file found"		
 	else
 		echo -e " [ ${cfR}X$cfN ] ERROR: AutoBW config file not found"
-		echo "              Run 'AutoBW -config' first"
+		echo -e "              Run ${cfY}AutoBW -config$cfN first"
 		logIt "ERROR: AutoBW config file not found"
 		gtg=0
 	fi
@@ -400,6 +396,7 @@ prereqCheck() {
                         fi
                 fi
         done
+
         if [ $gtg -eq 0 ]; then
                 echo
                 echo "Please correct the errors above and retry."
@@ -414,7 +411,7 @@ prereqCheck() {
 ### GET_NEW_SPEEDS
 ##############################
 # Either read in or run spdMerlin to calculate to download/upload speeds
-# Avergae these values to get new unscaled QoS bandwidth values
+# Average these values to get new unscaled QoS bandwidth values
 #################################################################################
 get_new_speeds() {
 	if [ -n "$read_bw" ]; then
@@ -885,8 +882,8 @@ if [ "$#" -ne 0 ]; then
 		  uninstall)	#Uninstall AutoBW
 			welcomeBanner
 			ans="NO"
-            echo " Do you really want to uninstall AutoBW? (YES/[NO])"
-            read -p" ??: " ans
+            		echo " Do you really want to uninstall AutoBW? (YES/[NO])"
+            		read -p" ??: " ans
 			if [ "$ans" == "YES" ];	then
 				echo " Removing $SCRIPT_DIR ..."
 				rm -rf $SCRIPT_DIR
@@ -899,37 +896,37 @@ if [ "$#" -ne 0 ]; then
 			exit 0;
 	 		;;
   	  	  *|help)
-        	echo -en "\033c\e[3J"           #clear screen
-        	echo -en '\033[?7l'         	#disable line wrap
-        	printf '\e[8;30;120t'         #set height/width of terminal
-        	echo -e  "\033[1;32mAutoBW ${SCRIPT_VERSION} \033[0m"
-        	echo -e  "\033[1;32mreleased ${RELEASE_DATE} \033[0m"
-        	echo ""
+        		echo -en "\033c\e[3J"           #clear screen
+        		echo -en '\033[?7l'         	#disable line wrap
+        		printf '\e[8;30;120t'         #set height/width of terminal
+        		echo -e  "\033[1;32mAutoBW ${SCRIPT_VERSION} \033[0m"
+        		echo -e  "\033[1;32mreleased ${RELEASE_DATE} \033[0m"
+        		echo ""
 			if [ "$arg" != "help" ]; then
 				echo -e "  ${cfR}ERROR:$cfN Unrecognized Command\n"
 			fi
 			echo "  Available commands:"
-        	echo ""
-        	echo "  AutoBW                    (no switches) run using defaults in config file "
-		echo "  AutoBW -help              displays this information"
-        	echo "  AutoBW -about             explains the functionality of AutoBW"
-        	echo "  AutoBW -config            Generates a default config file (it will not overwrite existing config file without permission)"
-		echo "                            Upon installing, this should be done before anything else"	
-		echo "  AutoBW -check             check for all prerequisites"	
-        	echo "  AutoBW -update            checks for/performs update"
-        	echo "  AutoBW -sim               simulation mode; do not make ANY changes"
-        	echo "  AutoBW -num_tests #       average bandwidth over # spdMerlin values"
-        	echo "  AutoBW -scale_by          scale bandwidth by these factors"
-		echo "                            -scale_by upload-factor download-factor"
-        	echo "  AutoBW -dl_limits         download bandwidth limits (in Mbps)"
-		echo "                            -dl_limits dl_lower_limit dl_upper_limit"
-        	echo "  AutoBW -ul_limits         upload bandwidth limits (in Mbps)"
-		echo "                            -ul_limits ul_lower_limit ul_upper_limit"
-        	echo "  AutoBW -set_bw            set bandwidth to these values (in Mbps)"
-        	echo "                            -set_BW upload_BW download_BW	"
-		echo "  AutoBW -read_bw           read in bandwidth from spdMerlin daily csv files"
-        	echo "  AutoBW -uninstall         uninstall script and delete from disk "
-        	echo ""
+	        	echo ""
+	        	echo "  AutoBW                    (no switches) run using defaults in config file "
+			echo "  AutoBW -help              displays this information"
+	        	echo "  AutoBW -about             explains the functionality of AutoBW"
+	        	echo "  AutoBW -config            Generates a default config file (it will not overwrite existing config file without permission)"
+			echo "                            Upon installing, this should be done before anything else"	
+			echo "  AutoBW -check             check for all prerequisites"	
+	        	echo "  AutoBW -update            checks for/performs update"
+	        	echo "  AutoBW -sim               simulation mode; do not make ANY changes"
+	        	echo "  AutoBW -num_tests #       average bandwidth over # spdMerlin values"
+	        	echo "  AutoBW -scale_by          scale bandwidth by these factors"
+			echo "                            -scale_by upload-factor download-factor"
+	        	echo "  AutoBW -dl_limits         download bandwidth limits (in Mbps)"
+			echo "                            -dl_limits dl_lower_limit dl_upper_limit"
+	        	echo "  AutoBW -ul_limits         upload bandwidth limits (in Mbps)"
+			echo "                            -ul_limits ul_lower_limit ul_upper_limit"
+	        	echo "  AutoBW -set_bw            set bandwidth to these values (in Mbps)"
+	        	echo "                            -set_BW upload_BW download_BW	"
+			echo "  AutoBW -read_bw           read in bandwidth from spdMerlin daily csv files"
+	        	echo "  AutoBW -uninstall         uninstall script and delete from disk "
+	        	echo ""
 			echo " Examples: AutoBW -sim -num_test 4"
 			echo "           Average download/upload bandwidth over 4 spdMerlin runs"
 			echo "           Simulate mode: do not make any real changes; just show me what it would look like"
