@@ -27,206 +27,518 @@
 # v1.5 (4/05/2020): Now handles VPN and Gbps|Mbps|Kbps rates/ceils
 #			-Use VPN values, if defined (thanks maghuro)
 #			-Handle rate/ceil units other than just Kbps (thanks peepsnet)
+# v2.0 (4/08/2020): Lots of new functionality
+#			-Takes command line arguments
+#			-Reads from AutoBW config file so updates no longer overwrite
+#             user-defined variables
+#           -Prettier output (thanks peepsnet)  
 ######################################################################
-readonly SCRIPT_AUTHOR="squidbillyms"
-readonly SCRIPT_VERSION="v1.4"
 readonly SCRIPT_NAME="AutoBW"
+readonly SCRIPT_AUTHOR="squidbillyms"
+readonly SCRIPT_VERSION="v2.0"
+readonly RELEASE_DATE="4-8-2020"
 readonly SCRIPT_BRANCH="master"
 readonly SCRIPT_REPO="https://raw.githubusercontent.com/$SCRIPT_AUTHOR/$SCRIPT_NAME/$SCRIPT_BRANCH"
-
-#Should I automatically check for and perform updates
-# 0=no ( I will update manually when I am ready manually), 1=yes do it for me
-# update manually using the following:
-#curl "https://raw.githubusercontent.com/squidbillyms/AutoBW/master/AutoBW" -o /jffs/scripts/AutoBW && chmod 755 AutoBW
-autoupdate=0
-
-#Scale average values by this factor
-# Adjust to optimize bufferbloat and quality grade at DSLreports.com
-down_scale_factor=0.85
-up_scale_factor=0.85
-
-#Make sure speeds (AFTER scaling) are within these boundaries
-# Mainly just to prevent bandwidth from being set too low
-# (or too high)... not worried about upper limit but it is there
-# for the sake of completeness
-download_lower_limit=10   #Mbps
-download_upper_limit=100  #Mbps
-upload_lower_limit=1      #Mbps
-upload_upper_limit=100    #Mbps
-
-#Calculate the average download and upload speeds over this many
-# consecutive spdMerlin runs
-num_spd_tests=2
-
-#Pause between successive spdMerlin runs (if num_spd_tests > 1)
-# 0 = no pause, 1 = yes pause
-pause_between_test=0
-#If yes (or 1), pause for how long (will be used with sleep command)
-pause_this_long=15s
-
-#spdMerlin command
-spdMer_command="/jffs/scripts/spdmerlin generate"
-
-#Use VPN values? If no, set 0. If yes, specify VPN client number
-Use_VPN=0
-
-#Location of upload/download stats
-if [ Use_VPN -eq 0 ]; then
-  upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm"
-  download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
-else
-  upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_VPNC$Use_VPN.htm"
-  download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_VPNC$Use_VPN.htm"
-fi
-
-#Test Mode (run and calculate but do not make any changes)
-# meaning no "nvram commit" or "tc class change" commands 
-# will be executed
-# 1 = test mode (no changes), 0 = make permenant changes 
-test_mode=1
+readonly SCRIPT_DIR="/jffs/addons/$SCRIPT_NAME"
+readonly SCRIPT_CONF="$SCRIPT_DIR/config"
+readonly ROUTER_BUILD_NUM=$(nvram get buildno)
+[ -z "$(nvram get odmpid)" ] && readonly ROUTER_MODEL=$(nvram get productid) || readonly ROUTER_MODEL=$(nvram get odmpid)
+readonly spdMerlin_Path="/jffs/scripts/spdmerlin"
+readonly spdMer_command="$spdMerlin_Path generate"
+readonly spdMerlin_lock="/tmp/spdmerlin.lock"
+readonly upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm"
+readonly download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
 ######################################################################
 
-update() {	#Adapted from code by Jack Yaz
-	printf "\n AutoUpdate is enabled. Checking for update ...\n"
+############### Colors and Stuff ###############
+cKA="\e[0m"
+#Font Styles
+fB="\e[1m"
+fD="\e[2m"
+fU="\e[4m"
+fBl="\e[5m"      #not working
+fR="\e[7m"
+fH="\e[8m"
+
+#Font Colors
+cfN="\e[39m"
+cfBla="\e[30m"
+cfR="\e[31m"
+cfG="\e[32m"
+cfY="\e[33m"
+cfBlu="\e[34m"
+cfM="\e[35m"
+cfC="\e[36m"
+cfLG="\e[37m"
+cfDG="\e[90m"
+cfLR="\e[91m"
+cfLG="\e[92m"
+cfLY="\e[93m"
+cfLB="\e[94m"
+cfLM="\e[95m"
+cfLC="\e[96m"
+cfW="\e[97m"
+
+#BG Colors
+cbNorm="\e[49m"
+cbBla="\e[40m"
+cbR="\e[41m"
+cbG="\e[42m"
+cbY="\e[43m"
+cbBlu="\e[44m"
+cbM="\e[45m"
+cbC="\e[46m"
+cbLG="\e[47m"
+cbDG="\e[100m"
+cbLR="\e[101m"
+cbLG="\e[102m"
+cbLY="\e[103m"
+cbLB="\e[104m"
+cbLM="\e[105m"
+cbLC="\e[106m"
+cbW="\e[107m"
+############### Colors and Stuff ##############
+
+
+##############################
+### LOGIT
+##############################
+# Send messages to the system log 
+#################################################################################
+logIt() {
+	logger -t "$SCRIPT_NAME" "$1"
+}
+
+##############################
+### CONFIG
+##############################
+# Check for and create (if commanded or necessary) a default AutoBW config file 
+#################################################################################
+config() {
+	defConfig="NO"
+	if [ -n "$newconfig" ] && [ -f "$SCRIPT_CONF" ]; then 
+		echo " An AutoBW config file was found at $SCRIPT_CONF"
+		echo " Do you want to overwrite it? (YES/[NO])"
+		read -p" ??: " defConfig
+	elif [ ! -f "$SCRIPT_CONF" ]; then
+		defConfig="YES"
+	fi
+	if [ "$defConfig" == "YES" ]; then
+		mkdir -p $SCRIPT_DIR
+		cat > "$SCRIPT_CONF" <<- EOF
+		#Should I automatically check for and perform updates
+		# 0=no ( I will update manually when I am ready)
+		# 1=yes, check for and apply updates if available
+		# update manually using the following:
+		# curl "https://raw.githubusercontent.com/squidbillyms/AutoBW/master/AutoBW" -o /jffs/scripts/AutoBW && chmod 755 AutoBW
+		autoupdate=0
+
+		#Scale average values by this factor
+		# Adjust to optimize bufferbloat and quality grade at DSLreports.com
+		down_scale_factor=0.85
+		up_scale_factor=0.85
+
+		#Make sure speeds (AFTER scaling) are within these boundaries
+		# Mainly just to prevent bandwidth from being set too low
+		# (or too high)... not worried about upper limit but it is there
+		# for the sake of completeness
+		# Units are Mbps
+		download_lower_limit=10
+		download_upper_limit=100
+		upload_lower_limit=1
+		upload_upper_limit=100
+
+		#Calculate the average download and upload speeds over this many
+		# consecutive spdMerlin runs
+		num_spd_tests=2
+
+		#Pause between successive spdMerlin runs (if num_spd_tests > 1)
+		# 0 = no pause
+		# 1 = yes pause
+		pause_between_test=0
+		#If pause, pause for how long (will be used with sleep command)
+		pause_this_long=15s
+
+		EOF
+		echo " A new AutoBW config file was created with default values at:"
+		echo " $SCRIPT_CONF"
+                echo
+	elif [ -n "$newconfig" ]; then
+		echo " Existing AutoBW config file was NOT overwritten."
+                echo 
+	else
+		echo
+		dos2unix "$SCRIPT_CONF"
+                chmod 0644 "$SCRIPT_CONF"
+	fi
+}	
+
+##############################
+### PARSECONFIG
+##############################
+# Read and parse config file. Perform a few checks to make sure numbers are 
+#  being read in and not something we cannot use 
+#################################################################################
+parseConfig() {
+	autoupdate=$(grep "^autoupdate=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	if [ -z "$down_scale_factor" ]; then
+		down_scale_factor=$(grep "^down_scale_factor=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+	if [ -z "$(echo "$down_scale_factor" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+		echo -e " ${cfR}ERROR:$cfN In config file, download scale factor is not a valid number.\n"
+		exit 1;
+	fi
+
+	if [ -z "$up_scale_factor" ]; then
+		up_scale_factor=$(grep "^up_scale_factor=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+	if [ -z "$(echo "$up_scale_factor" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+		echo -e " ${cfR}ERROR:$cfN In config file, upload scale factor is not a valid number.\n"
+		exit 1;
+	fi
+
+	if [ -z "$download_lower_limit" ]; then
+		download_lower_limit=$(grep "^download_lower_limit=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+	if [ -z "$(echo "$download_lower_limit" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+		echo -e " ${cfR}ERROR:$cfN In config file, download lower limit is not a valid number.\n"
+		exit 1;
+	fi
+
+	if [ -z "$download_upper_limit" ]; then
+		download_upper_limit=$(grep "^download_upper_limit=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+	if [ -z "$(echo "$download_upper_limit" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+		echo -e " ${cfR}ERROR:$cfN In config file, download upper limit is not a valid number.\n"
+		exit 1;
+	fi
+        if [ "$(echo "$download_lower_limit>=$download_upper_limit" | bc -l)" -eq "1" ]; then
+        	echo
+        	echo "ERROR: user-defined download lower limit >= download upper limit"
+            	echo "USAGE: AutoBW -dl_limits download-lower-limit download-upper-limit (in Mbps)"
+           	echo
+           	exit 1;
+        fi
+
+	if [ -z "$upload_lower_limit" ]; then
+		upload_lower_limit=$(grep "^upload_lower_limit=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+	if [ -z "$(echo "$upload_lower_limit" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+		echo -e " ${cfR}ERROR:$cfN In config file, upload lower limit is not a valid number.\n"
+		exit 1;
+	fi
+
+	if [ -z "$upload_upper_limit" ]; then
+		upload_upper_limit=$(grep "^upload_upper_limit=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+	if [ -z "$(echo "$upload_upper_limit" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+		echo -e " ${cfR}ERROR:$cfN In config file, upload upper limit is not a valid number.\n"
+		exit 1;
+	fi
+        if [ "$(echo "$upload_lower_limit>=$upload_upper_limit" | bc -l)" -eq "1" ]; then
+        	echo
+        	echo "ERROR: user-defined upload lower limit >= upload upper limit"
+            	echo "USAGE: AutoBW -ul_limits upload-lower-limit upload-upper-limit (in Mbps)"
+           	echo
+           	exit 1;
+        fi
+
+	if [ -z "$num_spd_tests" ]; then
+		num_spd_tests=$(grep "^num_spd_tests=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+	if [ -z "$(echo "$num_spd_tests" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+		echo -e " ${cfR}ERROR:$cfN In config file, number speed tests is not a valid number.\n"
+		exit 1;
+	fi
+
+	if [ -z "$pause_between_test" ]; then
+		pause_between_test=$(grep "^pause_between_test=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+	if [ -z "$pause_this_long" ]; then
+		pause_this_long=$(grep "^pause_this_long=" "$SCRIPT_CONF" | cut -f2 -d"=")
+	fi
+}
+
+	
+##############################
+### UPDATE
+##############################
+# Check for updates and then update if a newer version is found
+# Adapted from code by Jack Yaz
+#################################################################################
+update() {
+	printf " Checking for update ...\n"
 	doupdate="false"
-	localver=$(grep "SCRIPT_VERSION=" /jffs/scripts/"$SCRIPT_NAME" | grep -m1 -oE 'v[1-9]([.][0-9])')
-	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF $SCRIPT_AUTHOR || { echo -e " ERROR: Failed to check new version, continuing anyway."; return 1; }
-	serverver=$(/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep "SCRIPT_VERSION=" | grep -m1 -oE 'v[1-9]([.][0-9])')
-	if [ "$localver" != "$serverver" ]; then
+	localver=$(grep "SCRIPT_VERSION=" /jffs/scripts/"$SCRIPT_NAME" | grep -m1 -oE '[1-9]([.][0-9])')
+	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF $SCRIPT_AUTHOR || \
+		{ echo -e " ERROR: Failed to check for new version, continuing anyway."; return 1; }
+	serverver=$(/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep "SCRIPT_VERSION=" | grep -m1 -oE '[1-9]([.][0-9])')
+
+	#Don't wanna update if we are running a development release that is >= official version number
+	if [ "$localver" != "$serverver" ] && \
+	   [ "$(echo -e "$serverver\n$localver" | sort -r | tail -n1)" == "$localver" ]; then
 		doupdate="version"
-		printf " Found new version: this is %s ---> latest version is %s.\n" $localver $serverver
+		printf " Found new version: this is v%s while latest version is v%s.\n" $localver $serverver
 	else
 		localmd5="$(md5sum "/jffs/scripts/$SCRIPT_NAME" | awk '{print $1}')"
 		remotemd5="$(curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | md5sum | awk '{print $1}')"
 		if [ "$localmd5" != "$remotemd5" ]; then
 			#doupdate="md5"
-			printf " Something is different about this copy of %s. Just letting you know. :)\n" $SCRIPT_NAME
+			echo -e " ${cfY}WARNING:$cfN This version is v$localver"
+			echo -e " ${cfY}WARNING:$cfN Latest version is v$serverver"
+			echo -e " ${cfY}WARNING:$cfN The file hashes don't match.\n"
 		fi
 	fi
 		
 	if [ "$doupdate" != "false" ]; then
+		printf " Updatting to the latest version (v%s) ...\n" $serverver
 		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME" &> /dev/null
 		chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
-		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n\n" $serverver
-        exit 0
-	else
-		printf " Based on versioning alone, you have the latest version: %s\n" $serverver
+		printf " $SCRIPT_NAME was successfully updated to v%s. Updated version is ready to run.\n\n" $serverver
 	fi
 }
 
-check() {	
-	#Check to make sure bc and spdMerlin (v3.3.2 or later) is installed,
-	# QoS is enabled, and FreshJr_QoS is not in delayed start
-	bc -v &> /dev/null
+##############################
+### PREREQCHECK
+##############################
+# Check for all the prerequisites needed to run AutoBW
+# If not found, notify the user to correct and exit
+# Adapted from code by Jack Yaz
+#################################################################################
+prereqCheck() {
+        gtg=1 #good-to-go 1=yes 0=something missing
+        echo -e " Checking prerequisites:"
+        #Check to make sure bc and spdMerlin (v3.3.2 or later) is installed,
+        # QoS is enabled, and FreshJr_QoS is not in delayed start
+        if [ "$(uname -o)" = "ASUSWRT-Merlin" ] && [ "$(nvram get buildno | cut -f1 -d'.')" -ge "384" ]; then
+                echo -e " [ ${cfG}X$cfN ] AsusWRT-Merlin version checked!"
+        else
+                echo -e " [ ${cfR}X$cfN ] ERROR: AsusWRT-Merlin firmware version not comptible."
+                echo "       Upgrade to the latest version to continue"
+                echo
+                gtg=0
+		logIt "ERROR: AsusWRT-Merlin firmware version not comptible."
+        fi
+        bc -v &> /dev/null
         if [ "$?" -ne 0 ]; then
-		echo " ERROR: 'bc' is required but does not appear to be available."
-		exit 1;
-	elif [ ! -x "/jffs/scripts/spdmerlin" ]; then
-		echo " ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' " 
-		exit 1; 
-	#Check to make sure spdMerlin version is 3.3.2 or later (>=3.3.2 prevents QoS from interfering with speedtests)
-	elif [ $(echo -e "$(grep -m1 'SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
-		echo " ERROR: Need spdMerlin version >= 3.3.2 to ensure QoS doesn't interfere with calculated speeds."
-		echo " ERROR: Try running 'spdmerlin update'"
-		exit 1;	
-	elif [ "$(nvram get qos_enable)" == "0" ]; then
-		echo " ERROR: QoS does not appear to be enabled."
-                exit 1;
+                echo -e " [ ${cfR}X$cfN ] ERROR: 'bc' is required but does not appear to be available."
+                echo "       Install bc by typing: opkg install bc"
+                echo
+                gtg=0
+		logIt "ERROR: 'bc' is required but does not appear to be available."
+        else
+                echo -e " [ ${cfG}X$cfN ] bc installed"
+        fi
+        if [ ! -x "$spdMerlin_Path" ]; then
+                echo -e " [ ${cfR}X$cfN ] ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' "
+                echo "       Install spdMerlin by running: amtm"
+                echo "       and selecting spdMerlin"
+                echo
+                gtg=0
+		logIt "ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' "
+        else
+                echo -e " [ ${cfG}X$cfN ] spdMerlin is available."
+        fi
+        #Check to make sure spdMerlin version is 3.3.2 or later (>=3.3.2 prevents QoS from interfering with speedtests)
+        if [ $(echo -e "$(grep -m1 'SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
+                echo -e " [ ${cfR}X$cfN ] ERROR: Need spdMerlin version >= 3.3.2 to ensure QoS doesn't interfere with calculated speeds."
+                echo "       Try running 'spdmerlin update'"
+                echo
+                gtg=0
+		logIt "ERROR: Need spdMerlin version >= 3.3.2 to ensure QoS doesn't interfere with calculated speeds."
+        else
+                echo -e " [ ${cfG}X$cfN ] spdMerlin is >=3.3.2"
+        fi
+        if [ -x "$spdMerlin_lock" ]; then
+                echo -e " [ ${cfR}X$cfN ] ERROR: It appears spdMerlin is currently running."
+                echo "       Try again in 2 min"
+                echo "       If it still fails try running 'spdmerlin' first"
+                echo
+                gtg=0
+		logIt "ERROR: It appears spdMerlin is currently running."
+        else
+                echo -e " [ ${cfG}X$cfN ] spdMerlin is not currently running."
+        fi
+        if [ -f $download_stats ] && [ -f $upload_stats ]; then
+                echo -e " [ ${cfG}X$cfN ] spdMerlin Stats found"
+        else
+                echo -e " [ ${cfR}X$cfN ] ERROR: spdMerlin stats not found."
+                echo "       Try again in a minute or two."
+                echo "       If it still fails try running 'spdmerlin' first"
+                echo
+                gtg=0
+		logIt "ERROR: spdMerlin stats not found."
+        fi
+        if [ "$(nvram get qos_enable)" == "0" ]; then
+                echo -e " [ ${cfR}X$cfN ] ERROR: QoS does not appear to be enabled."
+                echo "       Please enable QOS in the Web Interface(webUI) and retry."
+                echo
+                gtg=0
+		logIt "ERROR: Adaptive QoS does not appear to be enabled."
+        else
+		#Traditional or Adaptive QoS enabled
+		if [ "$(tc class show dev eth0 | grep 'parent 1:1' | wc -l)" -eq "8" ] && \
+		   [ "$(tc class show dev br0 | grep 'parent 1:1' | wc -l)" -eq "8" ]; then
+                	echo -e " [ ${cfG}X$cfN ] Adaptive QOS Enabled"
+			QoS=adap
+		else
+			echo -e " [ ${cfG}X$cfN ] Traditional QOS Enabled"
+			QoS=trad
+		fi
+        fi
+	if [ -f "$SCRIPT_CONF" ]; then
+		echo -e " [ ${cfG}X$cfN ] AutoBW config file found"		
 	else
-		for pid in $(pidof FreshJR_QOS); do
-			if [ $pid != $$ ]; then
-				if ! [ "$(ps -w | grep "${pid}.*\(install\|menu\|rules\|rates\)" | grep -v "grep")" ] ; then
-					kill $pid
-				fi
-			fi
-		done
+		echo -e " [ ${cfR}X$cfN ] ERROR: AutoBW config file not found"
+		echo "              Run 'AutoBW -config' first"
+		logIt "ERROR: AutoBW config file not found"
+		gtg=0
 	fi
-
-	if [ "$test_mode" -eq "1" ]; then
-		echo -e "\n TEST MODE: No changes will be made."
+        for pid in $(pidof FreshJR_QOS); do
+                if [ $pid != $$ ]; then
+                        if ! [ "$(ps -w | grep "${pid}.*\(install\|menu\|rules\|rates\)" | grep -v "grep")" ] ; then
+                                kill $pid
+                        fi
+                fi
+        done
+        if [ $gtg -eq 0 ]; then
+                echo
+                echo "Please correct the errors above and retry."
+                echo
+                exit 1
+        else
+		echo
 	fi
 }
 
-get_new_speeds() {	#Get new down/up speeds using spdMerlin
-	echo
-	echo "               ---------------- SPDMERLIN -------------"
-	echo "                 Download (Kbps)       Upload (Kbps)"
-	echo "               -------------------  -------------------"
 
-	#Calculate average download and upload speeds
-	sum_down=0; sum_up=0; x=1
-	while [ "$x" -le "$num_spd_tests" ]
-	do
-		printf "\rRunning %2.0f of %2.0f speedtest, please wait... " $x $num_spd_tests 
-                ${spdMer_command} &> /dev/null
-                Mbps_down=$(tail -n1 $download_stats | awk -F ',' '{print $NF}')
-                Mbps_up=$(tail -n1 $upload_stats | awk -F ',' '{print $NF}')
-                Kbps_down=$(echo "$Mbps_down*1024" | bc -l)
-                Kbps_up=$(echo "$Mbps_up*1024" | bc -l)
-
-                sum_down=$(echo $sum_down+$Kbps_down | bc -l)
-                sum_up=$(echo $sum_up+$Kbps_up | bc -l)
-
-		printf "\rTest %2.0f of %2.0f    %10.1f           %10.1f\n" $x $num_spd_tests $Kbps_down $Kbps_up
-
-  		x=$(( $x + 1 ))
-		if [ "$pause_between_test" -eq 1 ] && [ "$x" -le "$num_spd_tests" ]; then 
-  			printf "Sleeping for %s ..." $pause_this_long  
-			sleep $pause_this_long
-                fi
-	done
-
-	#Calculate the average values
-	Kbps_down=$(echo "$sum_down/$num_spd_tests" | bc -l)
-	Kbps_up=$(echo "$sum_up/$num_spd_tests" | bc -l)
-	if [ "$num_spd_tests" -gt "1" ]; then
-		printf "Average          %10.1f           %10.1f\n" $Kbps_down $Kbps_up
+get_new_speeds() {
+	if [ -n "$read_bw" ]; then
+		#Already checked during prereqChecks ... so not sure this check is necessary
+		if [ -f $download_stats ] && [ -f $upload_stats ]; then
+			numDownRec="$(cat $download_stats | wc -l)"
+                      	numUpRec="$(cat $upload_stats | wc -l)"
+                     	numDownRec=$(( $numDownRec - 1 ))
+                     	numUpRec=$(( $numUpRec - 1 ))
+                  	if [ "$numDownRec" -lt "$num_spd_tests" ] && \
+                           [ "$numUpRec" -lt "$num_spd_tests" ]; then
+				echo -e " ${cfR}ERROR:$cfN You requested more values than are in spdMerlin daily csv logs."
+                            	echo -e "  Requested: $num_spd_tests"
+                               	echo -e "  Available spdMerlin Upload Records: $numUpRec"
+                              	echo -e "  Available SpdMerlin Download Records: $numDownRec\n"
+                             	exit 1;
+			fi
+		else
+               		echo -e " ${cfR}ERROR:$cfN spdMerlin daily csv files are missing." 
+			echo -e "        This could be because a test is currently running.\n"
+                	exit 1
+            	fi
 	fi
 
-	#Apply user-defined scale factors
-	printf "Scale Factors         %5.2f                %5.2f\n" $down_scale_factor $up_scale_factor
-	Kbps_down=$(echo "$Kbps_down*$down_scale_factor" | bc -l)
-	Kbps_up=$(echo "$Kbps_up*$up_scale_factor" | bc -l)
-	printf "Scaled Speeds    %10.1f           %10.1f\n" $Kbps_down $Kbps_up
+	if [ "$sim_mode" -eq "1" ]; then
+                echo -e " ${cfG}SIMULATION MODE: No changes will be made.$cfN\n"
+        fi
 
-	#Make sure download and uploads speeds are within defined user-defined limits above
+	if [ -n "$Kbps_up" ] && [ -n "$Kbps_down" ]; then
+		echo "               ------------- USER_DEFINED -------------"
+		echo "                 Download (Kbps)       Upload (Kbps)"
+		echo "               -------------------  -------------------"
+		printf "Input Speeds     %10.1f           %10.1f\n" $Kbps_down $Kbps_up
+	else
+		echo "               --------------- SPDMERLIN --------------"
+		echo "                 Download (Kbps)       Upload (Kbps)"
+		echo "               -------------------  -------------------"
+
+		sum_down=0; sum_up=0; x=1
+		if [ -n "$read_bw" ]; then	#Lets read in values
+                	while [ "$x" -le "$num_spd_tests" ]
+                	do
+                       		Mbps_down=$(tail -n$x $download_stats | head -n1 | awk -F ',' '{print $NF}')
+                        	Mbps_up=$(tail -n$x $upload_stats | head -n1 | awk -F ',' '{print $NF}')
+                        	Kbps_down=$(echo "$Mbps_down*1024" | bc -l)
+                        	Kbps_up=$(echo "$Mbps_up*1024" | bc -l)
+                        	sum_down=$(echo $sum_down+$Kbps_down | bc -l)
+                        	sum_up=$(echo $sum_up+$Kbps_up | bc -l)
+				printf "\rRead %2.0f of %2.0f    %10.1f           %10.1f\n" $x $num_spd_tests $Kbps_down $Kbps_up
+                        	x=$(( $x + 1 ))
+                	done
+		else				#Lets run spdMerlin to calc values
+			#Calculate average download and upload speeds
+			while [ "$x" -le "$num_spd_tests" ]
+			do
+				printf "\rRunning %2.0f of %2.0f speedtest, please wait... " $x $num_spd_tests 
+	                	${spdMer_command} &> /dev/null
+	                	Mbps_down=$(tail -n1 $download_stats | awk -F ',' '{print $NF}')
+	                	Mbps_up=$(tail -n1 $upload_stats | awk -F ',' '{print $NF}')
+	                	Kbps_down=$(echo "$Mbps_down*1024" | bc -l)
+	                	Kbps_up=$(echo "$Mbps_up*1024" | bc -l)
+
+	                	sum_down=$(echo $sum_down+$Kbps_down | bc -l)
+	                	sum_up=$(echo $sum_up+$Kbps_up | bc -l)
+
+				printf "\rTest %2.0f of %2.0f    %10.1f           %10.1f\n" $x $num_spd_tests $Kbps_down $Kbps_up
+
+	  			x=$(( $x + 1 ))
+				if [ "$pause_between_test" -eq 1 ] && [ "$x" -le "$num_spd_tests" ]; then 
+	  				printf "Sleeping for %s ..." $pause_this_long  
+					sleep $pause_this_long
+	                	fi
+			done
+		fi
+
+		#Calculate the average values
+		Kbps_down=$(echo "$sum_down/$num_spd_tests" | bc -l)
+		Kbps_up=$(echo "$sum_up/$num_spd_tests" | bc -l)
+		if [ "$num_spd_tests" -gt "1" ]; then
+			printf "Average          %10.1f           %10.1f\n" $Kbps_down $Kbps_up
+		fi
+
+		#Apply user-defined scale factors
+		printf "Scale Factors         %5.2f                %5.2f\n" $down_scale_factor $up_scale_factor
+		Kbps_down=$(echo "$Kbps_down*$down_scale_factor" | bc -l)
+		Kbps_up=$(echo "$Kbps_up*$up_scale_factor" | bc -l)
+		printf "Scaled Speeds    %10.1f           %10.1f\n" $Kbps_down $Kbps_up
+	fi
+
+	#Make sure download and uploads speeds are within defined user-defined limits
 	download_lower_limit=$(echo "$download_lower_limit*1024" | bc -l)
 	download_upper_limit=$(echo "$download_upper_limit*1024" | bc -l)
 	upload_lower_limit=$(echo "$upload_lower_limit*1024" | bc -l)
 	upload_upper_limit=$(echo "$upload_upper_limit*1024" | bc -l)
 	outta_bounds=0
 	if [ $(echo "$Kbps_down < ($download_lower_limit)" | bc -l) -eq 1 ]; then
-   		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit | logger -t $SCRIPT_NAME
-   		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit 
+   		printf "*Download Speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit | logger -t $SCRIPT_NAME
+   		printf "*Download Speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit 
     		Kbps_down=$download_lower_limit
 		outta_bounds=1
 	elif [ $(echo "$Kbps_down > $download_upper_limit" | bc -l) -eq 1 ]; then
-   		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit | logger -t $SCRIPT_NAME
-   		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit 
+   		printf "*Download Speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit | logger -t $SCRIPT_NAME
+   		printf "*Download Speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit 
    		Kbps_down=$download_upper_limit
 		outta_bounds=1
 	fi
 	if [ $(echo "$Kbps_up < $upload_lower_limit" | bc -l) -eq 1 ]; then
-   		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit | logger -t $SCRIPT_NAME
-   		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit 
+   		printf "*Upload Speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit | logger -t $SCRIPT_NAME
+   		printf "*Upload Speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit 
    		Kbps_up=$upload_lower_limit
 		outta_bounds=1
 	elif [ $(echo "$Kbps_up > $upload_upper_limit" | bc -l) -eq 1 ]; then
-   		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit | logger -t $SCRIPT_NAME
-   		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit 
+   		printf "*Upload Speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit | logger -t $SCRIPT_NAME
+   		printf "*Upload Speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit 
    		Kbps_up=$upload_upper_limit
 		outta_bounds=1
 	fi
 
 	if [ "$outta_bounds" -eq "1" ]; then
-		printf "Corrected Speeds   %10.1f            %10.1f\n" $Kbps_down $Kbps_up
+		printf "Corrected Speeds %10.1f           %10.1f\n" $Kbps_down $Kbps_up
 	fi	
 
 	#Get current QoS down/up speeds
 	old_Kbps_up=$( nvram get qos_obw )
 	old_Kbps_down=$( nvram get qos_ibw )
 
-	if [ "$test_mode" -eq "0" ]; then
+
+	if [ "$sim_mode" -eq "0" ]; then
 		#Set Upload/Download Limit
 		printf " -----> Setting QoS Download Speed to %8.1f Kbps ..." $Kbps_down | logger -t $SCRIPT_NAME
 		printf " -----> Setting QoS Upload Speed to %8.1f Kbps ..." $Kbps_up | logger -t $SCRIPT_NAME
@@ -234,15 +546,12 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 		nvram set qos_obw=$(echo $Kbps_up | cut -d. -f1)
 		nvram commit
 	fi 
-
 	echo
-	echo "               ----------------- QOS ----------------"
-	echo "                 Download (Kbps)      Upload (Kbps)"
-	echo "               -------------------  -----------------"
+	echo "               ----------------- QOS -----------------"
+	echo "                Download (Kbps)        Upload (Kbps)"
+	echo "               -----------------     -----------------"
 	printf "%s           %10.1f          %10.1f\n" "Previous" $old_Kbps_down $old_Kbps_up
 	printf "%s   %10.1f          %10.1f\n" "New (from above)" $Kbps_down $Kbps_up
-	
-	
 }
 
 update_via_TC() {
@@ -250,22 +559,22 @@ update_via_TC() {
 	PARMS=""
 	OVERHEAD=$(nvram get qos_overhead)
 	if [ ! -z "$OVERHEAD" ] && [ "$OVERHEAD" -gt "0" ] ; then
-			ATM=$(nvram get qos_atm)
-			if [ "$ATM" == "1" ] ; then
-					PARMS="overhead $OVERHEAD linklayer atm "
-			else
-					PARMS="overhead $OVERHEAD linklayer ethernet "
-			fi
+		ATM=$(nvram get qos_atm)
+		if [ "$ATM" == "1" ] ; then
+			PARMS="overhead $OVERHEAD linklayer atm "
+		else
+			PARMS="overhead $OVERHEAD linklayer ethernet "
+		fi
 	fi
 
 	#Calculate scale factor based on new/old speeds. This factor will be used to scale class rates & ceils
 	#If old speeds are 0, just set the scale factor to 1 (cannot divide by 0)
-	if [ "$old_Kbps_up" -eq "0" ]; then
+	if [ "$old_Kbps_up" -eq "0" ] || [ -z "$old_Kbps_up" ]; then
 		uscale_factor=1.0
 	else
 		uscale_factor=$( echo "$Kbps_up/$old_Kbps_up" | bc -l )
 	fi
-	if [ "$old_Kbps_down" -eq "0" ]; then
+	if [ "$old_Kbps_down" -eq "0" ] || [ -z "$old_Kbps_down" ]; then
 		dscale_factor=1.0
 	else
 		dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l ) 
@@ -276,7 +585,7 @@ update_via_TC() {
 	echo
 	echo "              ====================================== DOWNLOAD ======================================"
 	echo "               ----------------- RATE -----------------    ----------------- CEIL -----------------"
-	echo "Class            Previous (Kbps)        New (Kbps)           Previous (Kbps)         New (Kbps) "
+	echo "Class               Previous                New                 Previous                New"
 	echo "-----          -------------------  -------------------    -------------------  -------------------"
 	while read -r line;
 	do
@@ -287,46 +596,40 @@ update_via_TC() {
 		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
 		rateUnit=$( echo ${line} | cut -d' ' -f11)
 		rateUnit=${rateUnit//[0-9]/}
-		ceilUnit=$( echo ${line} | cut -d' ' -f15)
+		ceilUnit=$( echo ${line} | cut -d' ' -f13)
 		ceilUnit=${ceilUnit//[0-9]/}
-		if [ "$rateUnit" = "bit" ]; then
-			prevRate=$( echo "$prevRate*0.001" | bc -l)
-		fi
-		if [ "$rateUnit" = "Mbit" ]; then
-			prevRate=$( echo "$prevRate*1000" | bc -l)
-		fi
-		if [ "$rateUnit" = "Gbit" ]; then
-			prevRate=$( echo "$prevRate*1000000" | bc -l)
-		fi
-		
-		if [ "$ceilUnit" = "bit" ]; then
-			prevCeil=$( echo "$prevCeil*0.001" | bc -l)
-		fi
-		if [ "$ceilUnit" = "Mbit" ]; then
-			prevCeil=$( echo "$prevCeil*1000" | bc -l)
-		fi
-		if [ "$ceilUnit" = "Gbit" ]; then
-			prevCeil=$( echo "$prevCeil*1000000" | bc -l)
-		fi
 
 		Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-Z0-9]*\).*/\1/p' )
 		Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-Z0-9]*\).*/\1/p' )
 
-		Rate=$(echo "$prevRate*$dscale_factor" | bc -l)
-		Ceil=$(echo "$prevCeil*$dscale_factor" | bc -l)
+		Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
+		Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
 
-		printf "%2.0f                 %10.1f         %10.1f                %10.1f         %10.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+		if [ "$rateUnit" != "bit" ] && [ "$rateUnit" != "b" ] && \
+                   [ "$rateUnit" != "Kbit" ] && [ "$rateUnit" != "Mbit" ] && \
+                   [ "$rateUnit" != "Gbit" ]; then
+			echo -e "\n ${cfR}ERROR:$cfN Did not recognize rate TC unit: $rateUnit\n"
+                	exit 1;
+		fi
+		if [ "$ceilUnit" != "bit" ] && [ "$ceilUnit" != "b" ] && \
+                   [ "$ceilUnit" != "Kbit" ] && [ "$ceilUnit" != "Mbit" ] && \
+                   [ "$ceilUnit" != "Gbit" ]; then
+			echo -e "\n ${cfR}ERROR:$cfN Did not recognize TC ceil unit: $ceilUnit\n"
+                        exit 1;
+		fi
+
+		printf "%2.0f             %10.1f %4s       %10.1f %4s       %10.1f %4s       %10.1f %4s\n" \
+                       $class $prevRate $rateUnit $Rate $rateUnit $prevCeil $ceilUnit $Ceil $ceilUnit
 	
 		#Debug
 		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
 
-		#echo -e "tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}"
-		if [ "$test_mode" -eq "0" ]; then
-		Rate=$(echo $Rate | cut -d. -f1)
-		Ceil=$(echo $Ceil | cut -d. -f1)
-		
-		tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
-		
+		if [ "$sim_mode" -eq "0" ]; then
+			Rate=$(echo $Rate | cut -d. -f1)
+			Ceil=$(echo $Ceil | cut -d. -f1)
+			#Debug
+			#echo -e "tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}${rateUnit} ceil ${Ceil}${ceilUnit} burst ${Burst} cburst ${Cburst}"
+			tc class change dev br0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}${rateUnit} ceil ${Ceil}${ceilUnit} burst ${Burst} cburst ${Cburst}
 		fi
 
 	done <<EOF
@@ -336,7 +639,7 @@ EOF
 	echo
 	echo "              ======================================= UPLOAD ======================================="
 	echo "               ----------------- RATE -----------------    ----------------- CEIL -----------------"
-	echo "Class            Previous (Kbps)        New (Kbps)           Previous (Kbps)         New (Kbps) "
+	echo "Class               Previous                New                 Previous                New"
 	echo "-----          -------------------  -------------------    -------------------  -------------------"
 	while read -r line;
 	do
@@ -347,57 +650,308 @@ EOF
 		prevCeil=$( echo ${line} | awk -F"ceil |K?M?G?bit" '{print $3}' )
 		rateUnit=$( echo ${line} | cut -d' ' -f11)
 		rateUnit=${rateUnit//[0-9]/}
-		ceilUnit=$( echo ${line} | cut -d' ' -f15)
+		ceilUnit=$( echo ${line} | cut -d' ' -f13)
 		ceilUnit=${ceilUnit//[0-9]/}
-		if [ "$rateUnit" = "bit" ]; then
-			prevRate=$( echo "$prevRate*0.001" | bc -l)
-		fi
-		if [ "$rateUnit" = "Mbit" ]; then
-			prevRate=$( echo "$prevRate*1000" | bc -l)
-		fi
-		if [ "$rateUnit" = "Gbit" ]; then
-			prevRate=$( echo "$prevRate*1000000" | bc -l)
-		fi
-		
-		if [ "$ceilUnit" = "bit" ]; then
-			prevCeil=$( echo "$prevCeil*0.001" | bc -l)
-		fi
-		if [ "$ceilUnit" = "Mbit" ]; then
-			prevCeil=$( echo "$prevCeil*1000" | bc -l)
-		fi
-		if [ "$ceilUnit" = "Gbit" ]; then
-			prevCeil=$( echo "$prevCeil*1000000" | bc -l)
-		fi
-		
+
 		Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-Z0-9]*\).*/\1/p' )
 		Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-Z0-9]*\).*/\1/p' )
 
 		Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
 		Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
 
-		printf "%2.0f                 %10.1f         %10.1f                %10.1f         %10.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+		if [ "$rateUnit" != "bit" ] && [ "$rateUnit" != "b" ] && \
+                   [ "$rateUnit" != "Kbit" ] && [ "$rateUnit" != "Mbit" ] && \
+                   [ "$rateUnit" != "Gbit" ]; then
+			echo -e "\n ${cfR}ERROR:$cfN Did not recognize rate TC unit: $rateUnit\n"
+                	exit 1;
+		fi
+		if [ "$ceilUnit" != "bit" ] && [ "$ceilUnit" != "b" ] && \
+                   [ "$ceilUnit" != "Kbit" ] && [ "$ceilUnit" != "Mbit" ] && \
+                   [ "$ceilUnit" != "Gbit" ]; then
+			echo -e "\n ${cfR}ERROR:$cfN Did not recognize TC ceil unit: $ceilUnit\n"
+                        exit 1;
+		fi
+
+		printf "%2.0f             %10.1f %4s       %10.1f %4s       %10.1f %4s       %10.1f %4s\n" \
+                       $class $prevRate $rateUnit $Rate $rateUnit $prevCeil $ceilUnit $Ceil $ceilUnit
 	
 		#Debug
-		#echo -e "$line\n"
 		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
+		#echo -e "tc class change dev eth0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}"
 
-		if [ "$test_mode" -eq "0" ]; then
-		Rate=$(echo $Rate | cut -d. -f1)
-		Ceil=$(echo $Ceil | cut -d. -f1)
-		tc class change dev eth0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}Kbit ceil ${Ceil}Kbit burst ${Burst} cburst ${Cburst}
+		if [ "$sim_mode" -eq "0" ]; then
+			Rate=$(echo $Rate | cut -d. -f1)
+			Ceil=$(echo $Ceil | cut -d. -f1)
+			#Debug
+			#echo -e "tc class change dev eth0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}${rateUnit} ceil ${Ceil}${ceilUnit} burst ${Burst} cburst ${Cburst}"
+			tc class change dev eth0 parent 1:1 classid 1:${class} htb ${PARMS}prio ${prio} rate ${Rate}${rateUnit} ceil ${Ceil}${ceilUnit} burst ${Burst} cburst ${Cburst}
 		fi
 
 	done <<EOF
                 $( tc class show dev eth0 | grep "parent 1:1" )
 EOF
-	if [ "$test_mode" -eq "1" ]; then
-		echo -e "\n TEST MODE: No changes were made."
-	fi
-	echo
 }
 
-########### START HERE ###########
+##############################
+### WELCOMEBANNER
+##############################
+# Displays welcome header and relevant versioning info
+#################################################################################
+welcomeBanner() { 
+        clear
+        echo -e "$fB############################################################################"
+        echo -e "#                                                                          #"
+        echo -e "#$cfBlu      ______               __               ____       __      __         $cfN#"
+        echo -e "#$cfBlu     /\  _  \             /\ \__           /\  _ \    /\ \  __/\ \        $cfN#"
+        echo -e "#$cfBlu     \ \ \L\ \    __  __  \ \  _\    ___   \ \ \L\ \  \ \ \/\ \ \ \       $cfN#"
+        echo -e "#$cfBlu      \ \  __ \  /\ \/\ \  \ \ \/   / __ \  \ \  _ <   \ \ \ \ \ \ \      $cfN#"
+        echo -e "#$cfBlu       \ \ \/\ \ \ \ \_\ \  \ \ \_ /\ \L\ \  \ \ \L\ \  \ \ \_/ \_\ \     $cfN#"
+        echo -e "#$cfBlu        \ \_\ \_\ \ \____/   \ \__'\ \____/   \ \____/   \  \___x___/     $cfN#"
+        echo -e "#$cfBlu         \/_/\/_/  \/___/     \/__/ \/___/     \/___/      \/__//__/      $cfN#"
+        echo -e "#$cKA      Automatically adjust QOS and Flow rates for Realtime Bandwidth      $fB#"
+        echo -e "#$cKA               on Asus Routers with Merlin custom firmware                $fB#"
+        echo -e "#$cKA                                                                          $fB#"
+        echo -e "############################################################################"
+        echo -e "#                                                                          #"
+        echo -e "#$cKA               Original Code By: squidbillyms                             $fB#"
+        echo -e "#$cKA               Contributions by: peepsnet, maghuro                        $fB#"
+        echo -e "#$cKA                                                                          $fB#"
+        printf "#$cKA               Version: %-15s                                   $fB#\n" "$SCRIPT_VERSION"
+        printf "#$cKA               Release Date: %-15s                              $fB#\n" "$RELEASE_DATE"
+        echo -e "#$cKA               Source: https://github.com/squidbillyms/AutoBW             $fB#"
+        printf "#$cKA               Hardware: %-15s                                  $fB#\n" "$ROUTER_MODEL"
+        printf "#$cKA               Ver: %-15s                                       $fB#\n" "$ROUTER_BUILD_NUM"
+        echo -e "#                                                                          #"
+        echo -e "############################################################################$cKA"
+        echo -e "$cKA"
+ }
+
+##############################
+### MAIN PROGRAM
+##############################
+# Start executing here by determining what the user passed into the script
+#  and checking to make sure it was good input
+#################################################################################
+sim_mode=0
+if [ "$#" -ne 0 ]; then
+	while test $# -gt 0; do
+		arg="$1"
+		arg="$(echo "$arg" | tr -d "-" | tr 'A-Z' 'a-z')"
+		case "$arg" in
+  	  	  about)	#Tell about AutoBW
+			welcomeBanner
+			echo -e " AutoBW uses spdMerlin to calculate the download/upload speeds from the"
+			echo -e "  router. These speeds (or avg speeds if requested) are then used as"
+			echo -e "  the QoS bandwidth values. The class rate/ceils (for Adaptive QoS)"
+			echo -e "  are adjusted accordingly. Therefore, one could use AutoBW"
+			echo -e "  with cron to 'dynamically' adjust the QoS bandwidth values, which"			
+			echo -e "  is especailly helpful for unstable connections or those that"
+			echo -e "  experience significant fluctuations."
+			echo -e "  For more help: try ${cfY}AutoBW -help$cfN"
+			echo -e "                 or visit the forums at:"
+			echo -e "  ${cfY}https://www.snbforums.com/threads/autobw-automatically-set-qos-bandwidth-using-spdmerlin.63067/$cfN"  			
+			echo -e "  Special thanks to Jack Yaz, FreshJR, and Merlin\n"
+			exit 0;
+	  		;;
+  	  	  config)	#Generate/check for config file
+			welcomeBanner
+			newconfig=1
+			config
+			exit 0;
+	  		;;
+  	  	  update)	#Check for/perform updates
+			welcomeBanner
+			update
+			exit 0;
+	  		;;
+  	  	  sim)		#Simulation mode: make no changes
+			shift
+			sim_mode=1
+	  		;;
+  	  	  scale_by)	#Set bandwidth scale factors
+			gtg=0
+			if [ "$#" -ge "3" ]; then 
+				shift
+				arg1="$1"
+				shift
+				arg2="$1"
+				shift 
+				if [ -n "$(echo "$arg1" | grep -E '^-?[0-9]*\.?[0-9]*$')" ] && \
+	                           [ -n "$(echo "$arg2" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+					up_scale_factor=$arg1
+					down_scale_factor=$arg2
+					gtg=1
+				fi
+			fi
+			if [ "$gtg" -eq "0" ]; then
+				echo -e "\n ${cfR}ERROR:$cfN Need 2 valid numbers for bandwidth scale factors"
+				echo -e " USAGE: AutoBW -scale_by download-scale-factor upload-scale-factor\n"
+				exit 1;
+			fi
+			;;
+		  dl_limits)	#Set download limits
+			gtg=0
+			if [ "$#" -ge "3" ]; then
+				shift
+				arg1="$1"
+				shift
+				arg2="$1"
+				shift 
+				if [ -n "$(echo "$arg1" | grep -E '^-?[0-9]*\.?[0-9]*$')" ] && \
+                                   [ -n "$(echo "$arg2" | grep -E '^-?[0-9]*\.?[0-9]*$')" ] ; then
+					download_lower_limit=$arg1
+					download_upper_limit=$arg2
+					gtg=1
+				fi
+			fi
+			if [ "$gtg" -eq "0" ]; then
+				echo -e "\n ${cfR}ERROR:$cfN Need 2 valid numbers for download limits"
+                                echo -e " USAGE: AutoBW -dl_limits download-lower-limit download-upper-limit (in Mbps)\n"
+				exit 1;
+			fi
+			;;
+		  ul_limits)	#Set upload limits
+			gtg=0
+			if [ "$#" -ge "3" ]; then
+				shift
+				arg1="$1"
+				shift
+				arg2="$1"
+				shift 
+				if [ -n "$(echo "$arg1" | grep -E '^-?[0-9]*\.?[0-9]*$')" ] && \
+                                   [ -n "$(echo "$arg2" | grep -E '^-?[0-9]*\.?[0-9]*$')" ]; then
+					upload_lower_limit=$arg1
+					upload_upper_limit=$arg2
+					gtg=1
+				fi
+			fi
+			if [ "$gtg" -eq "0" ]; then
+				echo -e "\n ${cfR}ERROR:$cfN Need 2 valid numbers for upload limits"
+                                echo -e " USAGE: AutoBW -ul_limits upload-lower-limit upload-upper-limit (in Mbps)\n"
+				exit 1;
+			fi
+			;;
+		  num_tests)	#Avg speeds over this many spdMerlin tests
+			shift
+			if [ -n "$1" ] && [ ! -z "${1##*[!0-9]*}" ]; then
+				num_spd_tests=$1
+				shift
+			else
+                                echo -e "\n ${cfR}ERROR:$cfN Need the 'integer' number of speedtests to perform"
+                                echo -e " USGAE: AutoBW -num_tests number-speedtests-to-perform\n"
+                                exit 1;
+			fi
+			;;
+		  read_bw)	#Read bandwidth values from spdMerlin daily csv files
+			shift
+			read_bw=1
+			;;
+		  set_bw)	#Manually set Bandwidth values
+			gtg=0
+			if [ "$#" -ge "3" ]; then
+				shift
+				arg1="$1"
+				shift
+				arg2="$1"
+				shift
+				if [ -n "$(echo "$arg1" | grep -E '^-?[0-9]*\.?[0-9]*$')" ] && \
+                                   [ -n "$(echo "$arg2" | grep -E '^-?[0-9]*\.?[0-9]*$')" ] ; then
+					Kbps_up=$(echo "$arg1*1024" | bc -l)
+					Kbps_down=$(echo "$arg2*1024" | bc -l)
+					gtg=1
+                        	fi
+			fi
+			if [ "$gtg" -eq "0" ]; then
+                                echo -e "\n ${cfR}ERROR:$cfN Need 2 valid numbers for bandwidths"
+                                echo -e " USGAE: AutoBW -set_bw upload_bandwidth download_bandwidth\n"
+                                exit 1;
+                        fi
+                        ;;
+  		  check)	#Check prerequisites for running
+			welcomeBanner
+			prereqCheck
+			exit 0;
+			;;  
+		  uninstall)	#Uninstall AutoBW
+			welcomeBanner
+			ans="NO"
+            echo " Do you really want to uninstall AutoBW? (YES/[NO])"
+            read -p" ??: " ans
+			if [ "$ans" == "YES" ];	then
+				echo " Removing $SCRIPT_DIR ..."
+				rm -rf $SCRIPT_DIR
+				echo " Removing AutoBW ..."
+				rm -rf "$0"
+				echo -e " Thanks for trying AutoBW. All Done.\n"
+			else
+				echo -e " Ok, no action was taken.\n"
+			fi
+			exit 0;
+	 		;;
+  	  	  *|help)
+        	echo -en "\033c\e[3J"           #clear screen
+        	echo -en '\033[?7l'         	#disable line wrap
+        	printf '\e[8;30;120t'         #set height/width of terminal
+        	echo -e  "\033[1;32mAutoBW ${SCRIPT_VERSION} \033[0m"
+        	echo -e  "\033[1;32mreleased ${RELEASE_DATE} \033[0m"
+        	echo ""
+			if [ "$arg" != "help" ]; then
+				echo -e "  ${cfR}ERROR:$cfN Unrecognized Command\n"
+			fi
+			echo "  Available commands:"
+        	echo ""
+        	echo "  AutoBW                    (no switches) run using defaults in config file "
+			echo "  AutoBW -help              displays this information"
+        	echo "  AutoBW -about             explains the functionality of AutoBW"
+        	echo "  AutoBW -config            Generates a default config file (it will not overwrite existing config file without permission)"
+			echo "                            Upon installing, this should be done before anything else"	
+			echo "  AutoBW -check             check for all prerequisites"	
+        	echo "  AutoBW -update            checks for/performs update"
+        	echo "  AutoBW -sim               simulation mode; do not make ANY changes"
+        	echo "  AutoBW -num_tests #       average bandwidth over # spdMerlin values"
+        	echo "  AutoBW -scale_by          scale bandwidth by these factors"
+			echo "                            -scale_by upload-factor download-factor"
+        	echo "  AutoBW -dl_limits         download bandwidth limits (in Mbps)"
+			echo "                            -dl_limits dl_lower_limit dl_upper_limit"
+        	echo "  AutoBW -ul_limits         upload bandwidth limits (in Mbps)"
+			echo "                            -ul_limits ul_lower_limit ul_upper_limit"
+        	echo "  AutoBW -set_bw            set bandwidth to these values (in Mbps)"
+        	echo "                            -set_BW upload_BW download_BW	"
+			echo "  AutoBW -read_bw           read in bandwidth from spdMerlin daily csv files"
+        	echo "  AutoBW -uninstall         uninstall script and delete from disk "
+        	echo ""
+			echo " Examples: AutoBW -sim -num_test 4"
+			echo "           Average download/upload bandwidth over 4 spdMerlin runs"
+			echo "           Simulate mode: do not make any real changes; just show me what it would look like"
+			echo	
+			echo " Examples: AutoBW -dl_limits 20 100 -ul_limits 1 100 -scale_by 0.9 0.85"
+			echo "           Scale avg spdMerlin speeds by 0.9 (upload) and 0.85 (download)"
+			echo "           Ensure scaled speeds are within the input limits"
+			echo	
+			echo " Examples: AutoBW -set_bw 4 25"
+			echo "           Set QoS bandwidth to 4 Mbps up and 25 Mbps down"
+			echo "           Adjust class rate/ceils accordingly (for Adaptive QoS)"
+			echo	
+			echo " Examples: AutoBW -read_bw num_tests 10"
+			echo "           Read the last 10 results from spdMerline daily upload/download csv files"
+			echo "           Avg results and set QoS upload and download speeds accordingly"
+			echo	
+			if [ "$arg" != "help" ]; then
+				exit 1
+			else
+				exit 0
+			fi
+                	;;
+		esac
+	done
+fi
+
+welcomeBanner
+prereqCheck
+parseConfig
 if [ "$autoupdate" -ne "0" ]; then update; fi;
-check
 get_new_speeds
-update_via_TC
+if [ "$QoS" == "adap" ]; then update_via_TC; fi
+if [ "$sim_mode" -eq "1" ]; then echo -e "\n ${cfG}SIMULATION MODE: No changes were made.$cfN "; fi
+echo
+exit 0
