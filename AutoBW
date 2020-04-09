@@ -609,13 +609,13 @@ update_via_TC() {
 		Burst=$( echo ${line} | sed -n -e 's/.* burst \([a-zA-Z0-9]*\).*/\1/p' )
 		Cburst=$( echo ${line} | sed -n -e 's/.*cburst \([a-zA-Z0-9]*\).*/\1/p' )
 
-		Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
-		Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
+		Rate=$(echo "$prevRate*$dscale_factor" | bc -l)
+		Ceil=$(echo "$prevCeil*$dscale_factor" | bc -l)
 
 		if [ "$rateUnit" != "bit" ] && [ "$rateUnit" != "b" ] && \
                    [ "$rateUnit" != "Kbit" ] && [ "$rateUnit" != "Mbit" ] && \
                    [ "$rateUnit" != "Gbit" ]; then
-			echo -e "\n ${cfR}ERROR:$cfN Did not recognize rate TC unit: $rateUnit\n"
+			echo -e "\n ${cfR}ERROR:$cfN Did not recognize TC rate unit: $rateUnit\n"
                 	exit 1;
 		fi
 		if [ "$ceilUnit" != "bit" ] && [ "$ceilUnit" != "b" ] && \
@@ -669,7 +669,7 @@ EOF
 		if [ "$rateUnit" != "bit" ] && [ "$rateUnit" != "b" ] && \
                    [ "$rateUnit" != "Kbit" ] && [ "$rateUnit" != "Mbit" ] && \
                    [ "$rateUnit" != "Gbit" ]; then
-			echo -e "\n ${cfR}ERROR:$cfN Did not recognize rate TC unit: $rateUnit\n"
+			echo -e "\n ${cfR}ERROR:$cfN Did not recognize TC rate unit: $rateUnit\n"
                 	exit 1;
 		fi
 		if [ "$ceilUnit" != "bit" ] && [ "$ceilUnit" != "b" ] && \
