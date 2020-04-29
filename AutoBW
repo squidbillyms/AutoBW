@@ -72,11 +72,11 @@ Use_VPN=0
 
 #Location of upload/download stats
 if [ $Use_VPN -eq 0 ]; then
-  upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_WAN.htm"
-  download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_WAN.htm"
+  upload_stats="/www/user/spdmerlin/csv/Uploaddaily_WAN.htm"
+  download_stats="/www/user/spdmerlin/csv/Downloaddaily_WAN.htm"
 else
-  upload_stats="/jffs/addons/spdmerlin.d/csv/Uploaddaily_VPNC$Use_VPN.htm"
-  download_stats="/jffs/addons/spdmerlin.d/csv/Downloaddaily_VPNC$Use_VPN.htm"
+  upload_stats="/www/user/spdmerlin/csv/Uploaddaily_VPNC$Use_VPN.htm"
+  download_stats="/www/user/spdmerlin/csv/Downloaddaily_VPNC$Use_VPN.htm"
 fi
 
 #Test Mode (run and calculate but do not make any changes)
