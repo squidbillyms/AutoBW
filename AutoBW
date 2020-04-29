@@ -80,9 +80,9 @@ else
 fi
 
 #Test Mode (run and calculate but do not make any changes)
-# meaning no "nvram commit" or "tc class change" commands 
+# meaning no "nvram commit" or "tc class change" commands
 # will be executed
-# 1 = test mode (no changes), 0 = make permenant changes 
+# 1 = test mode (no changes), 0 = make permenant changes
 test_mode=1
 ######################################################################
 
@@ -114,7 +114,7 @@ update() {	#Adapted from code by Jack Yaz
 	fi
 }
 
-check() {	
+check() {
 	#Check to make sure bc and spdMerlin (v3.3.2 or later) is installed,
 	# QoS is enabled, and FreshJr_QoS is not in delayed start
 	bc -v &> /dev/null
@@ -122,13 +122,13 @@ check() {
 		echo " ERROR: 'bc' is required but does not appear to be available."
 		exit 1;
 	elif [ ! -x "/jffs/scripts/spdmerlin" ]; then
-		echo " ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' " 
-		exit 1; 
+		echo " ERROR: spdMerlin does not exist as an executable script in '/jffs/scripts/' "
+		exit 1;
 	#Check to make sure spdMerlin version is 3.3.2 or later (>=3.3.2 prevents QoS from interfering with speedtests)
 	elif [ $(echo -e "$(grep -m1 'SCRIPT_VERSION=' /jffs/scripts/spdmerlin | awk -F"\"v|\"" '{print $2}')\n3.3.2" | sort -r | tail -n1) != "3.3.2" ]; then
 		echo " ERROR: Need spdMerlin version >= 3.3.2 to ensure QoS doesn't interfere with calculated speeds."
 		echo " ERROR: Try running 'spdmerlin update'"
-		exit 1;	
+		exit 1;
 	elif [ "$(nvram get qos_enable)" == "0" ]; then
 		echo " ERROR: QoS does not appear to be enabled."
                 exit 1;
@@ -157,7 +157,7 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	sum_down=0; sum_up=0; x=1
 	while [ "$x" -le "$num_spd_tests" ]
 	do
-		printf "\rRunning %2.0f of %2.0f speedtest, please wait... " $x $num_spd_tests 
+		printf "\rRunning %2.0f of %2.0f speedtest, please wait... " $x $num_spd_tests
                 ${spdMer_command} &> /dev/null
                 Mbps_down=$(tail -n1 $download_stats | awk -F ',' '{print $NF}')
                 Mbps_up=$(tail -n1 $upload_stats | awk -F ',' '{print $NF}')
@@ -170,8 +170,8 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 		printf "\rTest %2.0f of %2.0f    %10.1f           %10.1f\n" $x $num_spd_tests $Kbps_down $Kbps_up
 
   		x=$(( $x + 1 ))
-		if [ "$pause_between_test" -eq 1 ] && [ "$x" -le "$num_spd_tests" ]; then 
-  			printf "Sleeping for %s ..." $pause_this_long  
+		if [ "$pause_between_test" -eq 1 ] && [ "$x" -le "$num_spd_tests" ]; then
+  			printf "Sleeping for %s ..." $pause_this_long
 			sleep $pause_this_long
                 fi
 	done
@@ -197,30 +197,30 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	outta_bounds=0
 	if [ $(echo "$Kbps_down < ($download_lower_limit)" | bc -l) -eq 1 ]; then
    		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit | logger -t $SCRIPT_NAME
-   		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit 
+   		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit
     		Kbps_down=$download_lower_limit
 		outta_bounds=1
 	elif [ $(echo "$Kbps_down > $download_upper_limit" | bc -l) -eq 1 ]; then
    		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit | logger -t $SCRIPT_NAME
-   		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit 
+   		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit
    		Kbps_down=$download_upper_limit
 		outta_bounds=1
 	fi
 	if [ $(echo "$Kbps_up < $upload_lower_limit" | bc -l) -eq 1 ]; then
    		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit | logger -t $SCRIPT_NAME
-   		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit 
+   		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit
    		Kbps_up=$upload_lower_limit
 		outta_bounds=1
 	elif [ $(echo "$Kbps_up > $upload_upper_limit" | bc -l) -eq 1 ]; then
    		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit | logger -t $SCRIPT_NAME
-   		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit 
+   		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit
    		Kbps_up=$upload_upper_limit
 		outta_bounds=1
 	fi
 
 	if [ "$outta_bounds" -eq "1" ]; then
 		printf "Corrected Speeds   %10.1f            %10.1f\n" $Kbps_down $Kbps_up
-	fi	
+	fi
 
 	#Get current QoS down/up speeds
 	old_Kbps_up=$( nvram get qos_obw )
@@ -233,7 +233,7 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 		nvram set qos_ibw=$(echo $Kbps_down | cut -d. -f1)
 		nvram set qos_obw=$(echo $Kbps_up | cut -d. -f1)
 		nvram commit
-	fi 
+	fi
 
 	echo
 	echo "               ----------------- QOS ----------------"
@@ -268,7 +268,7 @@ update_via_TC() {
 	if [ "$old_Kbps_down" -eq "0" ]; then
 		dscale_factor=1.0
 	else
-		dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l ) 
+		dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l )
 	fi
 
 	printf "%s           %8.3f            %8.3f\n" "Scaling by" $dscale_factor $uscale_factor
