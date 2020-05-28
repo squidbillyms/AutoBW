@@ -74,27 +74,27 @@ update() {	#Adapted from code by Jack Yaz
 	printf "\n AutoUpdate is enabled. Checking for update ...\n"
 	doupdate="false"
 	localver=$(grep "SCRIPT_VERSION=" /jffs/scripts/"$SCRIPT_NAME" | grep -m1 -oE 'v[1-9]([.][0-9])')
-	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF $SCRIPT_AUTHOR || { printf " ERROR: Failed to check new version, continuing anyway."; return 1; }
+	/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep -qF "$SCRIPT_AUTHOR" || { printf " ERROR: Failed to check new version, continuing anyway."; return 1; }
 	serverver=$(/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | grep "SCRIPT_VERSION=" | grep -m1 -oE 'v[1-9]([.][0-9])')
 	if [ "$localver" != "$serverver" ]; then
 		doupdate="version"
-		printf " Found new version: this is %s ---> latest version is %s.\n" $localver $serverver
+		printf " Found new version: this is %s ---> latest version is %s.\n" "$localver" "$serverver"
 	else
 		localmd5="$(md5sum "/jffs/scripts/$SCRIPT_NAME" | awk '{print $1}')"
 		remotemd5="$(curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" | md5sum | awk '{print $1}')"
 		if [ "$localmd5" != "$remotemd5" ]; then
 			#doupdate="md5"
-			printf " Something is different about this copy of %s. Just letting you know. :)\n" $SCRIPT_NAME
+			printf " Something is different about this copy of %s. Just letting you know. :)\n" "$SCRIPT_NAME"
 		fi
 	fi
 		
 	if [ "$doupdate" != "false" ]; then
 		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME" -o "/jffs/scripts/$SCRIPT_NAME" >/dev/null 2>&1
 		chmod 0755 /jffs/scripts/"$SCRIPT_NAME"
-		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n\n" $serverver
+		printf " $SCRIPT_NAME was successfully updated to %s. Please run it again.\n\n" "$serverver"
 		exit 0
 	else
-		printf " Based on versioning alone, you have the latest version: %s\n" $serverver
+		printf " Based on versioning alone, you have the latest version: %s\n" "$serverver"
 	fi
 }
 
@@ -118,9 +118,9 @@ check() {
 		exit 1
 	else
 		for pid in $(pidof FreshJR_QOS); do
-			if [ $pid != $$ ]; then
+			if [ "$pid" != $$ ]; then
 				if ! [ "$(ps -w | grep "${pid}.*\(install\|menu\|rules\|rates\)" | grep -v "grep")" ] ; then
-					kill $pid
+					kill "$pid"
 				fi
 			fi
 		done
@@ -141,20 +141,20 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	sum_down=0; sum_up=0; x=1
 	while [ "$x" -le "$num_spd_tests" ]
 	do
-		printf "\rRunning %2.0f of %2.0f speedtest, please wait... " $x $num_spd_tests
+		printf "\rRunning %2.0f of %2.0f speedtest, please wait... " "$x" "$num_spd_tests"
 		${spdMer_command} >/dev/null 2>&1
 		refreshstats
-		Mbps_down=$(tail -n1 "$download_file" | awk -F ',' '{print $NF}')
-		Mbps_up=$(tail -n1 "$upload_file" | awk -F ',' '{print $NF}')
-		Kbps_down=$(echo "$Mbps_down*1024" | bc -l)
-		Kbps_up=$(echo "$Mbps_up*1024" | bc -l)
+		Mbps_down="$(tail -n1 "$download_file" | awk -F ',' '{print $NF}')"
+		Mbps_up="$(tail -n1 "$upload_file" | awk -F ',' '{print $NF}')"
+		Kbps_down="$(echo "$Mbps_down*1024" | bc -l)"
+		Kbps_up="$(echo "$Mbps_up*1024" | bc -l)"
 		
-		sum_down=$(echo $sum_down+$Kbps_down | bc -l)
-		sum_up=$(echo $sum_up+$Kbps_up | bc -l)
+		sum_down="$(echo $sum_down+$Kbps_down | bc -l)"
+		sum_up="$(echo $sum_up+$Kbps_up | bc -l)"
 		
-		printf "\rTest %2.0f of %2.0f    %10.1f           %10.1f\n" $x $num_spd_tests $Kbps_down $Kbps_up
+		printf "\rTest %2.0f of %2.0f    %10.1f           %10.1f\n" "$x" "$num_spd_tests" "$Kbps_down" "$Kbps_up"
 		
-		x=$(( $x + 1 ))
+		x="$(( $x + 1 ))"
 		if [ "$pause_between_test" -eq 1 ] && [ "$x" -le "$num_spd_tests" ]; then
 			printf "Sleeping for %ss ..." "$pause_this_long"
 			sleep "$pause_this_long"
@@ -162,59 +162,59 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	done
 	
 	#Calculate the average values
-	Kbps_down=$(echo "$sum_down/$num_spd_tests" | bc -l)
-	Kbps_up=$(echo "$sum_up/$num_spd_tests" | bc -l)
+	Kbps_down="$(echo "$sum_down/$num_spd_tests" | bc -l)"
+	Kbps_up="$(echo "$sum_up/$num_spd_tests" | bc -l)"
 	if [ "$num_spd_tests" -gt "1" ]; then
-		printf "Average          %10.1f           %10.1f\n" $Kbps_down $Kbps_up
+		printf "Average          %10.1f           %10.1f\n" "$Kbps_down" "$Kbps_up"
 	fi
 	
 	#Apply user-defined scale factors
-	printf "Scale Factors         %5.2f                %5.2f\n" $down_scale_factor $up_scale_factor
-	Kbps_down=$(echo "$Kbps_down*$down_scale_factor" | bc -l)
-	Kbps_up=$(echo "$Kbps_up*$up_scale_factor" | bc -l)
-	printf "Scaled Speeds    %10.1f           %10.1f\n" $Kbps_down $Kbps_up
+	printf "Scale Factors         %5.2f                %5.2f\n" "$down_scale_factor" "$up_scale_factor"
+	Kbps_down="$(echo "$Kbps_down*$down_scale_factor" | bc -l)"
+	Kbps_up="$(echo "$Kbps_up*$up_scale_factor" | bc -l)"
+	printf "Scaled Speeds    %10.1f           %10.1f\n" "$Kbps_down" "$Kbps_up"
 	
 	#Make sure download and uploads speeds are within defined user-defined limits above
-	download_lower_limit=$(echo "$download_lower_limit*1024" | bc -l)
-	download_upper_limit=$(echo "$download_upper_limit*1024" | bc -l)
-	upload_lower_limit=$(echo "$upload_lower_limit*1024" | bc -l)
-	upload_upper_limit=$(echo "$upload_upper_limit*1024" | bc -l)
+	download_lower_limit="$(echo "$download_lower_limit*1024" | bc -l)"
+	download_upper_limit="$(echo "$download_upper_limit*1024" | bc -l)"
+	upload_lower_limit="$(echo "$upload_lower_limit*1024" | bc -l)"
+	upload_upper_limit="$(echo "$upload_upper_limit*1024" | bc -l)"
 	outta_bounds=0
 	if [ "$(echo "$Kbps_down < ($download_lower_limit)" | bc -l)" -eq 1 ]; then
-		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit | logger -t $SCRIPT_NAME
-		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_down $download_lower_limit
-		Kbps_down=$download_lower_limit
+		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" "$Kbps_down" "$download_lower_limit" | logger -t "$SCRIPT_NAME"
+		printf "* Download speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" "$Kbps_down" "$download_lower_limit"
+		Kbps_down="$download_lower_limit"
 		outta_bounds=1
 	elif [ "$(echo "$Kbps_down > $download_upper_limit" | bc -l)" -eq 1 ]; then
-		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit | logger -t $SCRIPT_NAME
-		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_down $download_upper_limit
-		Kbps_down=$download_upper_limit
+		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" "$Kbps_down" "$download_upper_limit" | logger -t "$SCRIPT_NAME"
+		printf "* Download speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" "$Kbps_down" "$download_upper_limit"
+		Kbps_down="$download_upper_limit"
 		outta_bounds=1
 	fi
 	if [ "$(echo "$Kbps_up < $upload_lower_limit" | bc -l)" -eq 1 ]; then
-		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit | logger -t $SCRIPT_NAME
-		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" $Kbps_up $upload_lower_limit
-		Kbps_up=$upload_lower_limit
+		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" "$Kbps_up" "$upload_lower_limit" | logger -t "$SCRIPT_NAME"
+		printf "* Upload speed (%8.1f Kbps) < lower limit (%8.1f Kbps)\n" "$Kbps_up" "$upload_lower_limit"
+		Kbps_up="$upload_lower_limit"
 		outta_bounds=1
 	elif [ "$(echo "$Kbps_up > $upload_upper_limit" | bc -l)" -eq 1 ]; then
-		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit | logger -t $SCRIPT_NAME
-		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" $Kbps_up $upload_upper_limit
-		Kbps_up=$upload_upper_limit
+		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" "$Kbps_up" "$upload_upper_limit" | logger -t "$SCRIPT_NAME"
+		printf "* Upload speed (%8.1f Kbps) > upper limit (%8.1f Kbps)\n" "$Kbps_up" "$upload_upper_limit"
+		Kbps_up="$upload_upper_limit"
 		outta_bounds=1
 	fi
 	
 	if [ "$outta_bounds" -eq "1" ]; then
-		printf "Corrected Speeds   %10.1f            %10.1f\n" $Kbps_down $Kbps_up
+		printf "Corrected Speeds   %10.1f            %10.1f\n" "$Kbps_down" "$Kbps_up"
 	fi
 	
 	#Get current QoS down/up speeds
-	old_Kbps_up=$( nvram get qos_obw )
-	old_Kbps_down=$( nvram get qos_ibw )
+	old_Kbps_up="$( nvram get qos_obw )"
+	old_Kbps_down="$( nvram get qos_ibw )"
 	
 	if [ "$test_mode" -eq "0" ]; then
 		#Set Upload/Download Limit
-		printf " -----> Setting QoS Download Speed to %8.1f Kbps ..." $Kbps_down | logger -t $SCRIPT_NAME
-		printf " -----> Setting QoS Upload Speed to %8.1f Kbps ..." $Kbps_up | logger -t $SCRIPT_NAME
+		printf " -----> Setting QoS Download Speed to %8.1f Kbps ..." "$Kbps_down" | logger -t "$SCRIPT_NAME"
+		printf " -----> Setting QoS Upload Speed to %8.1f Kbps ..." "$Kbps_up" | logger -t "$SCRIPT_NAME"
 		nvram set qos_ibw="$(echo $Kbps_down | cut -d. -f1)"
 		nvram set qos_obw="$(echo $Kbps_up | cut -d. -f1)"
 		nvram commit
@@ -224,16 +224,16 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	echo "               ----------------- QOS ----------------"
 	echo "                 Download (Kbps)      Upload (Kbps)"
 	echo "               -------------------  -----------------"
-	printf "%s           %10.1f          %10.1f\n" "Previous" $old_Kbps_down $old_Kbps_up
-	printf "%s   %10.1f          %10.1f\n" "New (from above)" $Kbps_down $Kbps_up
+	printf "%s           %10.1f          %10.1f\n" "Previous" "$old_Kbps_down" "$old_Kbps_up"
+	printf "%s   %10.1f          %10.1f\n" "New (from above)" "$Kbps_down" "$Kbps_up"
 }
 
 update_via_TC() {
 	#read parameters for tc
 	PARMS=""
-	OVERHEAD=$(nvram get qos_overhead)
+	OVERHEAD="$(nvram get qos_overhead)"
 	if [ ! -z "$OVERHEAD" ] && [ "$OVERHEAD" -gt "0" ] ; then
-		ATM=$(nvram get qos_atm)
+		ATM="$(nvram get qos_atm)"
 		if [ "$ATM" = "1" ]; then
 			PARMS="overhead $OVERHEAD linklayer atm "
 		else
@@ -254,7 +254,7 @@ update_via_TC() {
 		dscale_factor=$( echo "$Kbps_down/$old_Kbps_down" | bc -l )
 	fi
 	
-	printf "%s           %8.3f            %8.3f\n" "Scaling by" $dscale_factor $uscale_factor
+	printf "%s           %8.3f            %8.3f\n" "Scaling by" "$dscale_factor" "$uscale_factor"
 	
 	echo
 	echo "              ====================================== DOWNLOAD ======================================"
@@ -297,7 +297,7 @@ update_via_TC() {
 		Rate=$(echo "$prevRate*$dscale_factor" | bc -l)
 		Ceil=$(echo "$prevCeil*$dscale_factor" | bc -l)
 		
-		printf "%2.0f                 %10.1f         %10.1f                %10.1f         %10.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+		printf "%2.0f                 %10.1f         %10.1f                %10.1f         %10.1f\n" "$class" "$prevRate" "$Rate" "$prevCeil" "$Ceil"
 		
 		#Debug
 		#echo -e "$line\n class=$class\n prio=$prio\n Rate=$Rate\n Ceil=$Ceil\n Burst=$Burst\n Cburst=$Cburst\n"
@@ -354,7 +354,7 @@ EOF
 		Rate=$(echo "$prevRate*$uscale_factor" | bc -l)
 		Ceil=$(echo "$prevCeil*$uscale_factor" | bc -l)
 		
-		printf "%2.0f                 %10.1f         %10.1f                %10.1f         %10.1f\n" $class $prevRate $Rate $prevCeil $Ceil
+		printf "%2.0f                 %10.1f         %10.1f                %10.1f         %10.1f\n" "$class" "$prevRate" "$Rate" "$prevCeil" "$Ceil"
 		
 		#Debug
 		#echo -e "$line\n"
