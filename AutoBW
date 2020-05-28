@@ -15,7 +15,7 @@ readonly SCRIPT_REPO="https://raw.githubusercontent.com/$SCRIPT_AUTHOR/$SCRIPT_N
 #Should I automatically check for and perform updates
 # 0=no ( I will update manually when I am ready manually), 1=yes do it for me
 # update manually using the following:
-#curl "https://raw.githubusercontent.com/squidbillyms/AutoBW/master/AutoBW" -o /jffs/scripts/AutoBW && chmod 755 AutoBW
+#curl "https://raw.githubusercontent.com/jackyaz/AutoBW/master/AutoBW" -o /jffs/scripts/AutoBW && chmod 755 /jffs/scripts/AutoBW
 autoupdate=0
 
 #Scale average values by this factor
