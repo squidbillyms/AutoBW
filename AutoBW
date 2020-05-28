@@ -48,21 +48,20 @@ spdMer_command="/jffs/scripts/spdmerlin generate"
 #Use VPN values? If no, set 0. If yes, specify VPN client number
 Use_VPN=0
 
-#Location of upload/download stats
-if [ $Use_VPN -eq 0 ]; then
-	upload_file="/tmp/autobwupload_WAN.htm"
-	download_file="/tmp/autobwdownload_WAN.htm"
-	grep -iv "download" "/www/user/spdmerlin/csv/Combineddaily_WAN.htm" > "$upload_file"
-	grep -iv "upload" "/www/user/spdmerlin/csv/Combineddaily_WAN.htm" > "$download_file"
-else
-	upload_file="/tmp/autobwupload_$Use_VPN.htm"
-	download_file="/tmp/autobwdownload_$Use_VPN.htm"
-	grep -iv "download" "/www/user/spdmerlin/csv/Combineddaily_$Use_VPN.htm" > "$upload_file"
-	grep -iv "upload" "/www/user/spdmerlin/csv/Combineddaily_$Use_VPN.htm" > "$download_file"
-fi
-
-upload_stats="$upload_file"
-download_stats="$download_file"
+#Load upload/download stats
+refreshstats(){
+	if [ "$Use_VPN" -eq 0 ]; then
+		upload_file="/tmp/autobwupload_WAN.htm"
+		download_file="/tmp/autobwdownload_WAN.htm"
+		grep -iv "download" "/www/user/spdmerlin/csv/Combineddaily_WAN.htm" > "$upload_file"
+		grep -iv "upload" "/www/user/spdmerlin/csv/Combineddaily_WAN.htm" > "$download_file"
+	else
+		upload_file="/tmp/autobwupload_$Use_VPN.htm"
+		download_file="/tmp/autobwdownload_$Use_VPN.htm"
+		grep -iv "download" "/www/user/spdmerlin/csv/Combineddaily_$Use_VPN.htm" > "$upload_file"
+		grep -iv "upload" "/www/user/spdmerlin/csv/Combineddaily_$Use_VPN.htm" > "$download_file"
+	fi
+}
 
 #Test Mode (run and calculate but do not make any changes)
 # meaning no "nvram commit" or "tc class change" commands
@@ -144,8 +143,9 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 	do
 		printf "\rRunning %2.0f of %2.0f speedtest, please wait... " $x $num_spd_tests
 		${spdMer_command} >/dev/null 2>&1
-		Mbps_down=$(tail -n1 $download_stats | awk -F ',' '{print $NF}')
-		Mbps_up=$(tail -n1 $upload_stats | awk -F ',' '{print $NF}')
+		refreshstats
+		Mbps_down=$(tail -n1 "$download_file" | awk -F ',' '{print $NF}')
+		Mbps_up=$(tail -n1 "$upload_file" | awk -F ',' '{print $NF}')
 		Kbps_down=$(echo "$Mbps_down*1024" | bc -l)
 		Kbps_up=$(echo "$Mbps_up*1024" | bc -l)
 		
