@@ -28,8 +28,9 @@
 #			-Use VPN values, if defined (thanks maghuro)
 #			-Handle rate/ceil units other than just Kbps (thanks peepsnet)
 ######################################################################
-readonly SCRIPT_AUTHOR="squidbillyms"
-readonly SCRIPT_VERSION="v1.5"
+
+readonly SCRIPT_AUTHOR="jackyaz"
+readonly SCRIPT_VERSION="v1.6"
 readonly SCRIPT_NAME="AutoBW"
 readonly SCRIPT_BRANCH="master"
 readonly SCRIPT_REPO="https://raw.githubusercontent.com/$SCRIPT_AUTHOR/$SCRIPT_NAME/$SCRIPT_BRANCH"
