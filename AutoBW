@@ -50,12 +50,19 @@ Use_VPN=0
 
 #Location of upload/download stats
 if [ $Use_VPN -eq 0 ]; then
-  upload_stats="/www/user/spdmerlin/csv/Uploaddaily_WAN.htm"
-  download_stats="/www/user/spdmerlin/csv/Downloaddaily_WAN.htm"
+	upload_file="/tmp/autobwupload_WAN.htm"
+	download_file="/tmp/autobwdownload_WAN.htm"
+	grep -iv "download" "/www/user/spdmerlin/csv/Combineddaily_WAN.htm" > "$upload_file"
+	grep -iv "upload" "/www/user/spdmerlin/csv/Combineddaily_WAN.htm" > "$download_file"
 else
-  upload_stats="/www/user/spdmerlin/csv/Uploaddaily_VPNC$Use_VPN.htm"
-  download_stats="/www/user/spdmerlin/csv/Downloaddaily_VPNC$Use_VPN.htm"
+	upload_file="/tmp/autobwupload_$Use_VPN.htm"
+	download_file="/tmp/autobwdownload_$Use_VPN.htm"
+	grep -iv "download" "/www/user/spdmerlin/csv/Combineddaily_$Use_VPN.htm" > "$upload_file"
+	grep -iv "upload" "/www/user/spdmerlin/csv/Combineddaily_$Use_VPN.htm" > "$download_file"
 fi
+
+upload_stats="$upload_file"
+download_stats="$download_file"
 
 #Test Mode (run and calculate but do not make any changes)
 # meaning no "nvram commit" or "tc class change" commands
