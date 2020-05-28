@@ -40,7 +40,7 @@ num_spd_tests=2
 # 0 = no pause, 1 = yes pause
 pause_between_test=0
 #If yes (or 1), pause for how long (will be used with sleep command)
-pause_this_long=15s
+pause_this_long=15
 
 #spdMerlin command
 spdMer_command="/jffs/scripts/spdmerlin generate"
@@ -156,8 +156,8 @@ get_new_speeds() {	#Get new down/up speeds using spdMerlin
 		
 		x=$(( $x + 1 ))
 		if [ "$pause_between_test" -eq 1 ] && [ "$x" -le "$num_spd_tests" ]; then
-			printf "Sleeping for %s ..." $pause_this_long
-			sleep $pause_this_long
+			printf "Sleeping for %ss ..." "$pause_this_long"
+			sleep "$pause_this_long"
 		fi
 	done
 	
